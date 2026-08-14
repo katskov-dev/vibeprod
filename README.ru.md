@@ -3,11 +3,11 @@
 **Самостоятельно размещаемая панель управления агентами [opencode](https://github.com/sst/opencode).**
 Каждый сеанс — свой docker-контейнер. Работает на вашей машине, на ваших ключах, по вашим правилам.
 
-[![CI](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml)
+[![CI](https://github.com/katskov-dev/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/katskov-dev/vibeprod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-[English version](README.md) · [Лендинг](https://OWNER.github.io/vibeprod/)
+[English version](README.md) · [Лендинг](https://katskov-dev.github.io/vibeprod/)
 
 ![Сессии](docs/screenshots/sessions.png)
 
@@ -40,7 +40,7 @@ opencode — отличный терминальный агент. Vibeprod — 
 Нужен docker и Python 3.11+ (или только docker).
 
 ```bash
-git clone https://github.com/OWNER/vibeprod.git
+git clone https://github.com/katskov-dev/vibeprod.git
 cd vibeprod
 cp .env.example .env     # впишите хотя бы один ключ провайдера
 ./run.sh                 # → http://localhost:8000

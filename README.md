@@ -3,11 +3,11 @@
 **A self-hosted control plane for [opencode](https://github.com/sst/opencode) agents.**
 Every session gets its own Docker container. Runs on your machine, with your API keys, under your rules.
 
-[![CI](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml)
+[![CI](https://github.com/katskov-dev/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/katskov-dev/vibeprod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-[Русская версия](README.ru.md) · [Landing page](https://OWNER.github.io/vibeprod/)
+[Русская версия](README.ru.md) · [Landing page](https://katskov-dev.github.io/vibeprod/)
 
 ![Sessions](docs/screenshots/sessions.png)
 
@@ -39,7 +39,7 @@ result to Telegram — and no code or API key ever leaves your machine.
 Requires Docker and Python 3.11+ (or just Docker).
 
 ```bash
-git clone https://github.com/OWNER/vibeprod.git
+git clone https://github.com/katskov-dev/vibeprod.git
 cd vibeprod
 cp .env.example .env     # add at least one provider key
 ./run.sh                 # → http://localhost:8000
