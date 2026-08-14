@@ -100,7 +100,7 @@ def check_provider(provider_id, api_key, deep=True):
 
     Возвращает {"ok", "models", "error", "gen": {"ok", "model", "reply"/"error"}}.
     """
-    ws = tempfile.mkdtemp(prefix="harness-probe-")
+    ws = tempfile.mkdtemp(prefix="vibeprod-probe-")
     token = secrets.token_urlsafe(24)
     container = None
     try:
@@ -119,8 +119,8 @@ def check_provider(provider_id, api_key, deep=True):
             environment=env,
             mounts=[Mount(target="/workspace", source=ws, type="bind")],
             ports={f"{OPENCODE_PORT}/tcp": None},
-            labels={"harness.probe": "1"},
-            name=f"harness-probe-{uuid.uuid4().hex[:10]}",
+            labels={"vibeprod.probe": "1"},
+            name=f"vibeprod-probe-{uuid.uuid4().hex[:10]}",
         )
         port = get_host_port(container.id)
         url = f"http://127.0.0.1:{port}"

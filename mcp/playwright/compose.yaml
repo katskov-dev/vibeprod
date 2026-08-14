@@ -1,13 +1,13 @@
 services:
   playwright:
     build: .
-    image: harness-playwright-mcp:latest
-    container_name: harness-playwright
+    image: vibeprod-playwright-mcp:latest
+    container_name: vibeprod-playwright
     restart: unless-stopped
     init: true
     networks:
-      - harness-mcp
+      - vibeprod-mcp
 
 networks:
-  harness-mcp:
-    name: harness-mcp
+  vibeprod-mcp:
+    name: vibeprod-mcp

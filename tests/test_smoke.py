@@ -11,10 +11,10 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("HARNESS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("VIBEPROD_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
 
-    # модули читают HARNESS_DATA_DIR на импорте — перечитываем их с новым путём
+    # модули читают VIBEPROD_DATA_DIR на импорте — перечитываем их с новым путём
     from app import db as db_module
 
     importlib.reload(db_module)
@@ -42,7 +42,7 @@ def client(tmp_path, monkeypatch):
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "harness" in r.text
+    assert "Vibeprod" in r.text
 
 
 @pytest.mark.parametrize(

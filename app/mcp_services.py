@@ -6,14 +6,14 @@ import docker
 
 from .docker_runner import docker_client, ensure_mcp_network
 
-log = logging.getLogger("harness.mcp")
+log = logging.getLogger("vibeprod.mcp")
 
-HARNESS_ROOT = Path(__file__).resolve().parent.parent
+VIBEPROD_ROOT = Path(__file__).resolve().parent.parent
 
 
 def build_dir(entry):
     path = entry.get("service_build_dir")
-    return (HARNESS_ROOT / path).resolve() if path else None
+    return (VIBEPROD_ROOT / path).resolve() if path else None
 
 
 def service_status(container_name):
@@ -44,7 +44,7 @@ def ensure_running(entry):
     bdir = build_dir(entry)
     if not bdir:
         raise RuntimeError(f"для сервиса {name} не задан build_dir")
-    tag = f"harness-mcp-{name}:latest"
+    tag = f"vibeprod-mcp-{name}:latest"
     try:
         client.images.get(tag)
     except docker.errors.ImageNotFound:
@@ -54,7 +54,7 @@ def ensure_running(entry):
         tag,
         name=name,
         detach=True,
-        network=entry.get("service_network") or "harness-mcp",
+        network=entry.get("service_network") or "vibeprod-mcp",
         restart_policy={"Name": "unless-stopped"},
     )
 

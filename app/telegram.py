@@ -24,7 +24,7 @@ from . import db
 from . import session_manager
 from .streamer import streams
 
-log = logging.getLogger("harness.tg")
+log = logging.getLogger("vibeprod.tg")
 
 ENV_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ENV_ALLOWED = os.environ.get("TELEGRAM_ALLOWED_USERS", "").strip()
@@ -39,7 +39,7 @@ _bots = {}        # project_id -> {"task": Task, "token": str}
 _chat_tasks = {}  # chat_id -> Task (стрим сессии в чат)
 
 HELP = (
-    "Напишите задачу — запущу агента harness, ответ придёт сюда же.\n"
+    "Напишите задачу — запущу агента Vibeprod, ответ придёт сюда же.\n"
     "Дальше можно просто переписываться: диалог продолжается в той же сессии.\n\n"
     "Команды:\n"
     "/agents — список агентов\n"

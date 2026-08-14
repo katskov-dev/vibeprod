@@ -1,4 +1,4 @@
-/* opencode harness frontend */
+/* opencode Vibeprod frontend */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -111,13 +111,13 @@ let projectsCache = [];
 
 async function loadProjectMenu() {
   try { projectsCache = await api.get('/api/projects'); } catch { projectsCache = []; }
-  const stored = localStorage.getItem('harness-project');
+  const stored = localStorage.getItem('vibeprod-project');
   if (stored !== null && projectsCache.some(p => String(p.id) === stored)) {
     currentProject = stored;
   } else {
     currentProject = projectsCache.length ? String(projectsCache[0].id) : null;
-    if (currentProject) localStorage.setItem('harness-project', currentProject);
-    else localStorage.removeItem('harness-project');
+    if (currentProject) localStorage.setItem('vibeprod-project', currentProject);
+    else localStorage.removeItem('vibeprod-project');
   }
   renderProjectMenu();
 }
@@ -139,8 +139,8 @@ function renderProjectMenu() {
     </button>`).join('') || '<div class="px-3 py-2 text-xs text-neutral-500">проектов нет</div>';
   $$('.proj-item', list).forEach(b => b.onclick = async () => {
     currentProject = b.dataset.id || null;
-    if (currentProject) localStorage.setItem('harness-project', String(currentProject));
-    else localStorage.removeItem('harness-project');
+    if (currentProject) localStorage.setItem('vibeprod-project', String(currentProject));
+    else localStorage.removeItem('vibeprod-project');
     renderProjectMenu();
     setProjectMenu(false);
     await refreshCurrentView();
@@ -2165,7 +2165,7 @@ function catalogModal(c) {
       ${formInput('Environment (JSON)', 'environment', c.environment, '{}')}
     </div>
     <div data-cat-if="remote" class="${c.type === 'local' ? 'hidden' : ''}">
-      ${formInput('URL (streamable HTTP, напр. http://harness-playwright:8931/mcp)', 'url', c.url, 'http://…')}
+      ${formInput('URL (streamable HTTP, напр. http://vibeprod-playwright:8931/mcp)', 'url', c.url, 'http://…')}
       ${formInput('Headers (JSON)', 'headers', c.headers, '{}')}
     </div>`,
     async (close) => {
@@ -2256,7 +2256,7 @@ function projectModal(p, opts = {}) {
       else created = await api.post('/api/projects', f);
       if (created && opts.selectAfterCreate) {
         currentProject = String(created.id);
-        localStorage.setItem('harness-project', String(created.id));
+        localStorage.setItem('vibeprod-project', String(created.id));
       }
       close();
       await loadProjectMenu();

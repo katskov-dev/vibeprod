@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, Request, Response
 from .. import db
 from ..guardian_mcp import TOOLS, call_tool, get_secret
 
-log = logging.getLogger("harness.guardian")
+log = logging.getLogger("vibeprod.guardian")
 
 router = APIRouter()
 
@@ -42,7 +42,7 @@ async def _dispatch_one(msg):
         return _ok(msg_id, {
             "protocolVersion": version,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "harness-guardian", "version": "1.0.0"},
+            "serverInfo": {"name": "vibeprod-guardian", "version": "1.0.0"},
         })
     if method in ("notifications/initialized", "notifications/cancelled"):
         return None

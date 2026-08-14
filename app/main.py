@@ -16,7 +16,7 @@ from .api import agents, catalog, channels, guardian, projects, providers, sched
 from .streamer import streams
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-log = logging.getLogger("harness")
+log = logging.getLogger("vibeprod")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
         db.execute(
             "INSERT INTO agents(name, description, mode, model, system_prompt, permission, is_default, project_id) "
             "VALUES('general', 'Универсальный агент по умолчанию', 'primary', ?, ?, '\"allow\"', 1, ?)",
-            (os.environ.get("HARNESS_DEFAULT_MODEL", "deepseek/deepseek-chat"),
+            (os.environ.get("VIBEPROD_DEFAULT_MODEL", "deepseek/deepseek-chat"),
              "Ты полезный ассистент. Отвечай по-русски, кратко и по делу.",
              default_project["id"] if default_project else None),
         )
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     scheduler.init_scheduler(asyncio.get_running_loop())
     cleanup_task = asyncio.create_task(session_manager.cleanup_loop())
     await telegram.start()
-    log.info("harness broker up")
+    log.info("vibeprod broker up")
     yield
     await telegram.stop()
     cleanup_task.cancel()
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     scheduler.stop_scheduler()
 
 
-app = FastAPI(title="opencode harness", lifespan=lifespan)
+app = FastAPI(title="opencode Vibeprod", lifespan=lifespan)
 app.include_router(agents.router)
 app.include_router(catalog.router)
 app.include_router(channels.router)

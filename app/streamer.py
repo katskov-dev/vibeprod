@@ -8,7 +8,7 @@ import httpx
 from . import db
 from .opencode_client import OpencodeClient, USERNAME
 
-log = logging.getLogger("harness.stream")
+log = logging.getLogger("vibeprod.stream")
 
 PERSIST_TYPES = {
     "message.updated",

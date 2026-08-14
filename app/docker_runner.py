@@ -6,17 +6,17 @@ from pathlib import Path
 import docker
 from docker.types import Mount
 
-log = logging.getLogger("harness.docker")
+log = logging.getLogger("vibeprod.docker")
 
-IMAGE = os.environ.get("HARNESS_OPENCODE_IMAGE", "harness-opencode:latest")
+IMAGE = os.environ.get("VIBEPROD_OPENCODE_IMAGE", "vibeprod-opencode:latest")
 OPENCODE_PORT = 4096
-LABEL = "harness.session"
+LABEL = "vibeprod.session"
 
-HARNESS_ROOT = Path(__file__).resolve().parent.parent
-WORKER_BUILD_DIR = Path(os.environ.get("HARNESS_WORKER_BUILD_DIR", HARNESS_ROOT / "worker"))
+VIBEPROD_ROOT = Path(__file__).resolve().parent.parent
+WORKER_BUILD_DIR = Path(os.environ.get("VIBEPROD_WORKER_BUILD_DIR", VIBEPROD_ROOT / "worker"))
 
 
-MCP_NETWORK = "harness-mcp"
+MCP_NETWORK = "vibeprod-mcp"
 
 
 def ensure_mcp_network():
@@ -89,7 +89,7 @@ def run_worker(session_id, host_ws_dir, storage_name, auth_token, extra_provider
         ],
         ports={f"{OPENCODE_PORT}/tcp": None},
         labels={LABEL: session_id},
-        name=f"harness-{session_id[:12]}",
+        name=f"vibeprod-{session_id[:12]}",
         network=MCP_NETWORK,
         extra_hosts={"host.docker.internal": "host-gateway"},
     )
@@ -137,12 +137,12 @@ def kill_worker(container_id, storage_name=None, remove_volume=False):
             pass
 
 
-def list_harness_containers():
+def list_vibeprod_containers():
     return _client().containers.list(all=True, filters={"label": LABEL})
 
 
 def list_probe_containers():
-    return _client().containers.list(all=True, filters={"label": "harness.probe"})
+    return _client().containers.list(all=True, filters={"label": "vibeprod.probe"})
 
 
 def container_session_id(container):

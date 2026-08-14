@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/OWNER/harness/security/advisories/new
+    url: https://github.com/OWNER/vibeprod/security/advisories/new
     about: Report privately — please do not open a public issue.

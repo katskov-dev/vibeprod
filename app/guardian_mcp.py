@@ -1,4 +1,4 @@
-"""Guardian MCP: служебный MCP-сервер агента-оператора harness.
+"""Guardian MCP: служебный MCP-сервер агента-оператора Vibeprod.
 
 Streamable HTTP поверх JSON-RPC, без внешних зависимостей: инструменты
 работают напрямую с sqlite (db) и docker (docker_runner). Доступен только
@@ -35,10 +35,10 @@ def get_secret():
 
 
 def guardian_url():
-    env = os.environ.get("HARNESS_GUARDIAN_URL")
+    env = os.environ.get("VIBEPROD_GUARDIAN_URL")
     if env:
         return env.rstrip("/")
-    port = os.environ.get("HARNESS_PORT", "8000")
+    port = os.environ.get("VIBEPROD_PORT", "8000")
     return f"http://host.docker.internal:{port}/guardian/mcp"
 
 

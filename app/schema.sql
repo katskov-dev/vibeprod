@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS mcp_catalog (
   service_build_dir TEXT,
   service_container TEXT,
   service_port INTEGER,
-  service_network TEXT DEFAULT 'harness-mcp',
+  service_network TEXT DEFAULT 'vibeprod-mcp',
   builtin INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );

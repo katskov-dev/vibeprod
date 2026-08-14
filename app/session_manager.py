@@ -19,16 +19,16 @@ from .opencode_client import OpencodeClient, wait_healthy
 from .render import render_workspace
 from .streamer import streams
 
-DATA_DIR = Path(os.environ.get("HARNESS_DATA_DIR", Path(__file__).resolve().parent.parent / "data")).resolve()
+DATA_DIR = Path(os.environ.get("VIBEPROD_DATA_DIR", Path(__file__).resolve().parent.parent / "data")).resolve()
 WORKSPACES = DATA_DIR / "workspaces"
 # Хост-путь к data (для bind-mount в воркеры): если брокер сам в докере,
 # внутриконтейнерный путь докеру не виден — задаётся через env.
-HOST_DATA_DIR = Path(os.environ.get("HARNESS_HOST_DATA_DIR", DATA_DIR))
-IDLE_TTL = int(os.environ.get("HARNESS_IDLE_TTL_MIN", "120")) * 60
+HOST_DATA_DIR = Path(os.environ.get("VIBEPROD_HOST_DATA_DIR", DATA_DIR))
+IDLE_TTL = int(os.environ.get("VIBEPROD_IDLE_TTL_MIN", "120")) * 60
 
 
 def storage_name(sid):
-    return f"harness-oc-{sid}"
+    return f"vibeprod-oc-{sid}"
 
 
 def ws_dir(sid):
@@ -129,7 +129,7 @@ def _ensure_mcp_services(mcp_rows):
         except Exception as exc:
             import logging
 
-            logging.getLogger("harness").warning("mcp service %s: %s", entry["name"], exc)
+            logging.getLogger("vibeprod").warning("mcp service %s: %s", entry["name"], exc)
 
 
 def _client_for(row):
@@ -366,7 +366,7 @@ async def cleanup_loop():
         except Exception as exc:
             import logging
 
-            logging.getLogger("harness").warning("cleanup: %s", exc)
+            logging.getLogger("vibeprod").warning("cleanup: %s", exc)
 
 
 async def reattach_streamers():
@@ -399,7 +399,7 @@ async def reattach_streamers():
         except Exception as exc:
             import logging
 
-            logging.getLogger("harness").warning("reattach %s: %s", row["id"], exc)
+            logging.getLogger("vibeprod").warning("reattach %s: %s", row["id"], exc)
         if done:
             await streams.finalize_completed(row["id"], url, token, row["opencode_session_id"])
             continue
@@ -410,7 +410,7 @@ def reconcile():
     """Синхронизация БД и докера после рестарта брокера."""
     from .docker_runner import (
         container_session_id,
-        list_harness_containers,
+        list_vibeprod_containers,
         list_probe_containers,
     )
 
@@ -420,7 +420,7 @@ def reconcile():
         except Exception:
             pass
     live = {}
-    for c in list_harness_containers():
+    for c in list_vibeprod_containers():
         sid = container_session_id(c)
         if sid:
             live[sid] = c

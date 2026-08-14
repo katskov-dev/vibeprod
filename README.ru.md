@@ -1,13 +1,13 @@
-# harness
+# Vibeprod
 
 **Самостоятельно размещаемая панель управления агентами [opencode](https://github.com/sst/opencode).**
 Каждый сеанс — свой docker-контейнер. Работает на вашей машине, на ваших ключах, по вашим правилам.
 
-[![CI](https://github.com/OWNER/harness/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/harness/actions/workflows/ci.yml)
+[![CI](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-[English version](README.md) · [Лендинг](https://OWNER.github.io/harness/)
+[English version](README.md) · [Лендинг](https://OWNER.github.io/vibeprod/)
 
 ![Сессии](docs/screenshots/sessions.png)
 
@@ -15,7 +15,7 @@
 
 ## Что это
 
-opencode — отличный терминальный агент. harness — слой вокруг него, который
+opencode — отличный терминальный агент. Vibeprod — слой вокруг него, который
 нужен, когда агентов становится больше одного: веб-интерфейс над всеми сеансами
 сразу, агенты, описанные один раз и переиспользуемые, cron-расписания, входящие
 вебхуки, канал в Telegram и общий каталог MCP. Всё это — один процесс FastAPI и
@@ -40,8 +40,8 @@ opencode — отличный терминальный агент. harness — �
 Нужен docker и Python 3.11+ (или только docker).
 
 ```bash
-git clone https://github.com/OWNER/harness.git
-cd harness
+git clone https://github.com/OWNER/vibeprod.git
+cd vibeprod
 cp .env.example .env     # впишите хотя бы один ключ провайдера
 ./run.sh                 # → http://localhost:8000
 ```
@@ -73,7 +73,7 @@ docker compose up --build
 ```
 
 **Сеанс** = контейнер + сессия opencode. История диалога лежит в docker-томе
-`harness-oc-<id>`, поэтому воркер можно перезапустить, не потеряв переписку. По
+`vibeprod-oc-<id>`, поэтому воркер можно перезапустить, не потеряв переписку. По
 TTL простоя контейнер убивается, сессия помечается `expired` — данные остаются в
 базе до удаления.
 
@@ -96,7 +96,7 @@ TTL простоя контейнер убивается, сессия поме�
 
 **Каталог MCP** хранит переиспользуемые серверы двух видов. *generic* — обычные
 local (команда) или remote (URL). *service* — docker-контейнеры в сети
-`harness-mcp`; встроенный **playwright** даёт любому агенту настоящий браузер и
+`vibeprod-mcp`; встроенный **playwright** даёт любому агенту настоящий браузер и
 поднимается автоматически, когда нужен сессии. Добавление к агенту — одна кнопка.
 
 ### Автоматизация: расписания, вебхуки, Telegram
@@ -147,12 +147,12 @@ probe-контейнер с тем же образом opencode и вашим к
 
 ## Сравнение с аналогами
 
-Честно о позиционировании: harness — небольшой self-hosted проект, а не
+Честно о позиционировании: Vibeprod — небольшой self-hosted проект, а не
 конкурент профинансированным платформам по широте и зрелости. Он выигрывает по
 одной оси — *автоматизация на своём железе без облачного тарифа* — и проигрывает
 по другой: *здесь вообще нет аутентификации и многопользовательского режима*.
 
-| | **harness** | [OpenHands](https://github.com/OpenHands/OpenHands) | [opencode](https://github.com/sst/opencode) | [Goose](https://github.com/block/goose) | Devin · Jules · Codex cloud · Cursor agents |
+| | **Vibeprod** | [OpenHands](https://github.com/OpenHands/OpenHands) | [opencode](https://github.com/sst/opencode) | [Goose](https://github.com/block/goose) | Devin · Jules · Codex cloud · Cursor agents |
 |---|---|---|---|---|---|
 | Лицензия | MIT | MIT | MIT | Apache-2.0 | Проприетарные |
 | Self-hosted | Единственный вариант | Да (+ облако) | Да | Да | Нет |
@@ -168,7 +168,7 @@ probe-контейнер с тем же образом opencode и вашим к
 | Аутентификация, многопользовательский режим, RBAC | ❌ **нет** | ✅ enterprise | — | — | ✅ |
 | Зрелость | 🌱 ранняя | Крупный, с инвестициями | Очень крупный | Linux Foundation | Коммерческие |
 
-**Берите harness, если** нужны агенты на своём железе, запускаемые по cron,
+**Берите Vibeprod, если** нужны агенты на своём железе, запускаемые по cron,
 вебхукам и из чата, с изоляцией по сеансам и ключами, которые никуда не уходят.
 
 **Берите что-то другое, если** нужны разграничение доступа, размещённый сервис с
@@ -178,14 +178,14 @@ SLA или зрелый процесс ревью пул-реквестов.
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `HARNESS_DATA_DIR` | `./data` | sqlite + workspaces (путь внутри брокера) |
-| `HARNESS_HOST_DATA_DIR` | `= HARNESS_DATA_DIR` | тот же каталог в системе координат докер-демона. Нужен, когда брокер сам в контейнере |
-| `HARNESS_OPENCODE_IMAGE` | `harness-opencode:latest` | образ воркера, собирается из `worker/` при первом запуске |
-| `HARNESS_WORKER_BUILD_DIR` | `./worker` | контекст сборки образа воркера |
-| `HARNESS_IDLE_TTL_MIN` | `120` | минут простоя до убийства воркера |
-| `HARNESS_PORT` | `8000` | порт брокера |
-| `HARNESS_TZ` | `Europe/Moscow` | таймзона cron-расписаний |
-| `HARNESS_GUARDIAN_URL` | `http://host.docker.internal:<порт>/guardian/mcp` | URL guardian MCP так, как его видят воркеры |
+| `VIBEPROD_DATA_DIR` | `./data` | sqlite + workspaces (путь внутри брокера) |
+| `VIBEPROD_HOST_DATA_DIR` | `= VIBEPROD_DATA_DIR` | тот же каталог в системе координат докер-демона. Нужен, когда брокер сам в контейнере |
+| `VIBEPROD_OPENCODE_IMAGE` | `vibeprod-opencode:latest` | образ воркера, собирается из `worker/` при первом запуске |
+| `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | контекст сборки образа воркера |
+| `VIBEPROD_IDLE_TTL_MIN` | `120` | минут простоя до убийства воркера |
+| `VIBEPROD_PORT` | `8000` | порт брокера |
+| `VIBEPROD_TZ` | `Europe/Moscow` | таймзона cron-расписаний |
+| `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<порт>/guardian/mcp` | URL guardian MCP так, как его видят воркеры |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ALLOWED_USERS` · `TELEGRAM_WEB_URL` | — | фолбэк на первый запуск, если в интерфейсе ничего не настроено |
 | `*_API_KEY` | — | прокидываются внутрь воркеров |
 

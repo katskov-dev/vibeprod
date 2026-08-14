@@ -8,7 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from . import db
 from . import session_manager
 
-log = logging.getLogger("harness.sched")
+log = logging.getLogger("vibeprod.sched")
 
 scheduler = BackgroundScheduler()
 loop = None

@@ -8,8 +8,8 @@ are welcome, and there is no heavyweight process.
 You need Python 3.12+ and a working Docker daemon.
 
 ```bash
-git clone https://github.com/<owner>/harness.git
-cd harness
+git clone https://github.com/<owner>/vibeprod.git
+cd vibeprod
 cp .env.example .env        # add at least one provider key
 ./run.sh                    # creates .venv, installs deps, serves on :8000
 ```
@@ -40,7 +40,7 @@ keep it that way — tests that require credentials cannot run in CI.
 | `app/docker_runner.py` | Everything that talks to the Docker SDK |
 | `app/render.py` | Builds `opencode.json` + agent/skill files in a worker's workspace |
 | `app/streamer.py` | Relays worker SSE into WebSockets, persists compact events |
-| `app/guardian_mcp.py` | The MCP server the operator agent uses to configure harness |
+| `app/guardian_mcp.py` | The MCP server the operator agent uses to configure Vibeprod |
 | `app/static/` | The whole frontend: one HTML file, one JS file, Tailwind via CDN |
 | `worker/`, `mcp/` | Dockerfiles for the worker image and bundled MCP services |
 

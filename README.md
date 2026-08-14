@@ -1,13 +1,13 @@
-# harness
+# Vibeprod
 
 **A self-hosted control plane for [opencode](https://github.com/sst/opencode) agents.**
 Every session gets its own Docker container. Runs on your machine, with your API keys, under your rules.
 
-[![CI](https://github.com/OWNER/harness/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/harness/actions/workflows/ci.yml)
+[![CI](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/vibeprod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-[Русская версия](README.ru.md) · [Landing page](https://OWNER.github.io/harness/)
+[Русская версия](README.ru.md) · [Landing page](https://OWNER.github.io/vibeprod/)
 
 ![Sessions](docs/screenshots/sessions.png)
 
@@ -15,7 +15,7 @@ Every session gets its own Docker container. Runs on your machine, with your API
 
 ## What this is
 
-opencode is an excellent terminal coding agent. harness is the layer around it
+opencode is an excellent terminal coding agent. Vibeprod is the layer around it
 that a *team* needs: a web UI over many sessions at once, agents defined once
 and reused, cron schedules, inbound webhooks, a Telegram channel, and a
 reusable MCP catalog — all in one FastAPI process with a SQLite file next to it.
@@ -39,8 +39,8 @@ result to Telegram — and no code or API key ever leaves your machine.
 Requires Docker and Python 3.11+ (or just Docker).
 
 ```bash
-git clone https://github.com/OWNER/harness.git
-cd harness
+git clone https://github.com/OWNER/vibeprod.git
+cd vibeprod
 cp .env.example .env     # add at least one provider key
 ./run.sh                 # → http://localhost:8000
 ```
@@ -71,7 +71,7 @@ Browser ⇄ WebSocket ⇄ FastAPI broker (SQLite)
 ```
 
 A **session** is a container plus an opencode session. Conversation history
-lives in a Docker volume (`harness-oc-<id>`), so a worker can be restarted
+lives in a Docker volume (`vibeprod-oc-<id>`), so a worker can be restarted
 without losing the thread. After the idle TTL the container is killed and the
 session is marked `expired`; its data stays in the database until you delete it.
 
@@ -94,7 +94,7 @@ what the worker sees is stock opencode configuration.
 
 The **MCP catalog** holds reusable servers of two kinds. *Generic* ones are
 ordinary local (command) or remote (URL) servers. *Service* ones are Docker
-containers on the `harness-mcp` network — the bundled **playwright** service
+containers on the `vibeprod-mcp` network — the bundled **playwright** service
 gives any agent a real browser, and starts automatically when a session needs it.
 Attaching one to an agent is a single click.
 
@@ -146,12 +146,12 @@ models and makes a real generation request — the same path a worker will take.
 
 ## Comparison
 
-Honest positioning: harness is a small, self-hosted project, not a competitor to
+Honest positioning: Vibeprod is a small, self-hosted project, not a competitor to
 funded platforms on breadth or maturity. It wins on one axis — *self-hosted
 automation without a cloud tier* — and loses on another — *it has no
 authentication or multi-user support at all*.
 
-| | **harness** | [OpenHands](https://github.com/OpenHands/OpenHands) | [opencode](https://github.com/sst/opencode) | [Goose](https://github.com/block/goose) | Devin · Jules · Codex cloud · Cursor agents |
+| | **Vibeprod** | [OpenHands](https://github.com/OpenHands/OpenHands) | [opencode](https://github.com/sst/opencode) | [Goose](https://github.com/block/goose) | Devin · Jules · Codex cloud · Cursor agents |
 |---|---|---|---|---|---|
 | License | MIT | MIT | MIT | Apache-2.0 | Proprietary |
 | Self-hosted | Only option | Yes (+ managed cloud) | Yes | Yes | No |
@@ -167,7 +167,7 @@ authentication or multi-user support at all*.
 | Auth, multi-user, RBAC | ❌ **none** | ✅ enterprise | n/a | n/a | ✅ |
 | Maturity | 🌱 early | Large, funded | Very large | Linux Foundation | Commercial |
 
-**Pick harness if** you want agents on your own hardware, triggered by cron,
+**Pick Vibeprod if** you want agents on your own hardware, triggered by cron,
 webhooks and chat, with per-session isolation and keys that never leave the box.
 
 **Pick something else if** you need multi-user access control, a hosted service
@@ -177,14 +177,14 @@ with an SLA, or a mature pull-request review workflow.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HARNESS_DATA_DIR` | `./data` | SQLite + workspaces (path inside the broker) |
-| `HARNESS_HOST_DATA_DIR` | `= HARNESS_DATA_DIR` | Same directory as the Docker daemon sees it. Needed when the broker itself is containerised |
-| `HARNESS_OPENCODE_IMAGE` | `harness-opencode:latest` | Worker image, built from `worker/` on first run |
-| `HARNESS_WORKER_BUILD_DIR` | `./worker` | Build context for the worker image |
-| `HARNESS_IDLE_TTL_MIN` | `120` | Idle minutes before a worker is killed |
-| `HARNESS_PORT` | `8000` | Broker port |
-| `HARNESS_TZ` | `Europe/Moscow` | Timezone for cron schedules |
-| `HARNESS_GUARDIAN_URL` | `http://host.docker.internal:<port>/guardian/mcp` | Guardian MCP URL as workers see it |
+| `VIBEPROD_DATA_DIR` | `./data` | SQLite + workspaces (path inside the broker) |
+| `VIBEPROD_HOST_DATA_DIR` | `= VIBEPROD_DATA_DIR` | Same directory as the Docker daemon sees it. Needed when the broker itself is containerised |
+| `VIBEPROD_OPENCODE_IMAGE` | `vibeprod-opencode:latest` | Worker image, built from `worker/` on first run |
+| `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | Build context for the worker image |
+| `VIBEPROD_IDLE_TTL_MIN` | `120` | Idle minutes before a worker is killed |
+| `VIBEPROD_PORT` | `8000` | Broker port |
+| `VIBEPROD_TZ` | `Europe/Moscow` | Timezone for cron schedules |
+| `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<port>/guardian/mcp` | Guardian MCP URL as workers see it |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ALLOWED_USERS` · `TELEGRAM_WEB_URL` | — | First-boot fallback if nothing is configured in the UI |
 | `*_API_KEY` | — | Passed into workers |
 

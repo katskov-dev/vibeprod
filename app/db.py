@@ -3,7 +3,7 @@ import secrets
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get("HARNESS_DATA_DIR", Path(__file__).resolve().parent.parent / "data")) / "harness.db"
+DB_PATH = Path(os.environ.get("VIBEPROD_DATA_DIR", Path(__file__).resolve().parent.parent / "data")) / "vibeprod.db"
 
 
 def connect():
@@ -50,8 +50,8 @@ def init_db():
                 "service_build_dir, service_container, service_port, service_network, builtin) "
                 "VALUES('playwright', 'Браузер Playwright в отдельном контейнере: навигация, "
                 "скриншоты, клики, заполнение форм', 'service', 'remote', "
-                "'http://harness-playwright:8931/mcp', 'mcp/playwright', "
-                "'harness-playwright', 8931, 'harness-mcp', 1)"
+                "'http://vibeprod-playwright:8931/mcp', 'mcp/playwright', "
+                "'vibeprod-playwright', 8931, 'vibeprod-mcp', 1)"
             )
         if not conn.execute("SELECT id FROM projects LIMIT 1").fetchone():
             conn.execute(
@@ -68,7 +68,7 @@ def init_db():
         if not conn.execute("SELECT id FROM agents WHERE is_guardian=1 LIMIT 1").fetchone():
             from .guardian_prompt import GUARDIAN_SYSTEM_PROMPT
 
-            model = os.environ.get("HARNESS_DEFAULT_MODEL") or "deepseek/deepseek-chat"
+            model = os.environ.get("VIBEPROD_DEFAULT_MODEL") or "deepseek/deepseek-chat"
             default_agent = conn.execute(
                 "SELECT model FROM agents WHERE is_guardian=0 ORDER BY is_default DESC, id LIMIT 1"
             ).fetchone()

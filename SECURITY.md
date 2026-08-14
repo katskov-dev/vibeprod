@@ -2,7 +2,7 @@
 
 ## Threat model — read this before you deploy
 
-harness is designed to run **on a trusted machine, reachable only by you**:
+Vibeprod is designed to run **on a trusted machine, reachable only by you**:
 your laptop, or a private host behind a VPN. It is *not* hardened for exposure
 to the public internet, and two properties make that dangerous:
 
@@ -23,7 +23,7 @@ only. Do not change that to `0.0.0.0` unless you have read the next section.
 
 ## Deploying on a remote host
 
-If you need harness on a server, put authentication in front of it and never
+If you need Vibeprod on a server, put authentication in front of it and never
 publish the port directly:
 
 - Keep the container bound to loopback (`127.0.0.1:8000:8000` — the default).
@@ -55,7 +55,7 @@ Consequences to keep in mind:
 
 ## Secrets
 
-- Provider API keys are stored **in plaintext** in `data/harness.db`, and the
+- Provider API keys are stored **in plaintext** in `data/vibeprod.db`, and the
   guardian bearer secret alongside them. The whole `data/` directory is
   gitignored — keep it that way, and treat backups of it as secret material.
 - `.env` is gitignored. Never commit real keys; `.env.example` is the template.

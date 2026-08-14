@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>harness — a self-hosted control plane for opencode agents</title>
+<title>Vibeprod — a self-hosted control plane for opencode agents</title>
 <meta name="description" content="Run AI agents on your own machine: a web UI over many sessions, one Docker container each, plus cron schedules, webhooks and Telegram. MIT licensed.">
 <style>
 /* ── tokens ─────────────────────────────────────────────────────────────── */
@@ -407,7 +407,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 
 <header class="hero">
   <div class="wrap">
-    <h1 class="hero__mark">harness</h1>
+    <h1 class="hero__mark">Vibeprod</h1>
     <p class="hero__thesis">Your agents, your machine, your keys.</p>
     <p class="hero__sub">
       A self-hosted control plane for <a href="https://github.com/sst/opencode">opencode</a>.
@@ -416,7 +416,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
     </p>
 
     <div class="hero__actions">
-      <a class="btn btn--primary" href="https://github.com/OWNER/harness">Get it on GitHub</a>
+      <a class="btn btn--primary" href="https://github.com/OWNER/vibeprod">Get it on GitHub</a>
       <a class="btn" href="#quickstart">Quick start</a>
       <a class="btn" href="#comparison">How it compares</a>
     </div>
@@ -469,7 +469,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
     </p>
     <p class="lede" style="margin-top:1rem">
       The hosted products solve that, and charge for it: your code goes to their sandbox,
-      your automation lives behind their subscription. harness solves it on your hardware
+      your automation lives behind their subscription. Vibeprod solves it on your hardware
       instead. It is one FastAPI process with a SQLite file next to it — no queue,
       no Kubernetes, no build step in the frontend.
     </p>
@@ -548,7 +548,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
         <h3 class="section-title" style="font-size:1.15rem">A browser, a database, an API — one click each</h3>
         <p>
           The MCP catalog holds reusable servers: ordinary local and remote ones, and Docker
-          services that harness starts on demand. The bundled Playwright service gives any
+          services that Vibeprod starts on demand. The bundled Playwright service gives any
           agent a real browser in its own container, on a private network the workers share.
         </p>
       </div>
@@ -582,7 +582,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
     <p class="eyebrow">The unusual part</p>
     <h2 class="section-title">The agent configures the platform</h2>
     <p class="lede">
-      harness ships with an operator agent that reaches back into harness itself through a
+      Vibeprod ships with an operator agent that reaches back into Vibeprod itself through a
       private MCP server living inside the broker. Describe what you want on the home screen —
       <em>“review agent for pull requests, give it GitHub, run it from a webhook”</em> — and it
       creates the agents, attaches the MCP servers and skills, adds the providers, and wires up
@@ -599,7 +599,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 <section class="band" id="comparison">
   <div class="wrap">
     <p class="eyebrow">Comparison</p>
-    <h2 class="section-title">Where harness wins, and where it doesn't</h2>
+    <h2 class="section-title">Where Vibeprod wins, and where it doesn't</h2>
     <p class="lede" style="margin-bottom:2rem">
       This is a small project, not a competitor to funded platforms on breadth or maturity.
       It wins on one axis — self-hosted automation with no cloud tier — and loses badly on
@@ -611,7 +611,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
         <thead>
           <tr>
             <th scope="col">&nbsp;</th>
-            <th scope="col" class="is-us">harness</th>
+            <th scope="col" class="is-us">Vibeprod</th>
             <th scope="col">OpenHands</th>
             <th scope="col">opencode</th>
             <th scope="col">Goose</th>
@@ -681,7 +681,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 
     <div class="verdicts">
       <div class="verdict verdict--yes">
-        <h3>Pick harness if</h3>
+        <h3>Pick Vibeprod if</h3>
         <p>
           You want agents on your own hardware, started by cron, webhooks and chat, with
           per-session isolation and API keys that never leave the box.
@@ -712,16 +712,16 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
       <div>
         <p class="eyebrow">On the host</p>
         <pre class="code"><span class="c"># clone, configure, run</span>
-git clone https://github.com/<span class="p">OWNER</span>/harness.git
-cd harness
+git clone https://github.com/<span class="p">OWNER</span>/vibeprod.git
+cd vibeprod
 cp .env.example .env   <span class="c"># add one provider key</span>
 ./run.sh               <span class="c"># → localhost:8000</span></pre>
       </div>
       <div>
         <p class="eyebrow">In a container</p>
         <pre class="code"><span class="c"># same thing, dockerised</span>
-git clone https://github.com/<span class="p">OWNER</span>/harness.git
-cd harness
+git clone https://github.com/<span class="p">OWNER</span>/vibeprod.git
+cd vibeprod
 cp .env.example .env
 docker compose up --build</pre>
       </div>
@@ -740,7 +740,7 @@ docker compose up --build</pre>
         reach its port can run code as root on the host. Compose binds it to
         <code>127.0.0.1</code> for that reason. To reach it remotely, put it behind a reverse
         proxy that authenticates, or a VPN. The details are in
-        <a href="https://github.com/OWNER/harness/blob/main/SECURITY.md">SECURITY.md</a>.
+        <a href="https://github.com/OWNER/vibeprod/blob/main/SECURITY.md">SECURITY.md</a>.
       </p>
     </div>
   </div>
@@ -749,7 +749,7 @@ docker compose up --build</pre>
 <footer>
   <div class="wrap">
     <span>MIT licensed · built on <a href="https://github.com/sst/opencode">opencode</a></span>
-    <span><a href="https://github.com/OWNER/harness">github.com/OWNER/harness</a></span>
+    <span><a href="https://github.com/OWNER/vibeprod">github.com/OWNER/vibeprod</a></span>
   </div>
 </footer>
 

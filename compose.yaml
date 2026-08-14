@@ -7,18 +7,18 @@ services:
     # docker.sock он управляет докер-демоном. Прежде чем менять на 0.0.0.0,
     # прочитайте SECURITY.md — снаружи это равносильно root-шеллу на хосте.
     ports:
-      - "127.0.0.1:${HARNESS_PORT:-8000}:8000"
+      - "127.0.0.1:${VIBEPROD_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - ./mcp:/app/mcp:ro
       - ./worker:/app/worker:ro
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - HARNESS_TZ=${HARNESS_TZ:-Europe/Moscow}
-      - HARNESS_OPENCODE_IMAGE=${HARNESS_OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}
-      - HARNESS_IDLE_TTL_MIN=${HARNESS_IDLE_TTL_MIN:-120}
-      - HARNESS_PORT=${HARNESS_PORT:-8000}
-      - HARNESS_HOST_DATA_DIR=${PWD}/data
+      - VIBEPROD_TZ=${VIBEPROD_TZ:-Europe/Moscow}
+      - VIBEPROD_OPENCODE_IMAGE=${VIBEPROD_OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}
+      - VIBEPROD_IDLE_TTL_MIN=${VIBEPROD_IDLE_TTL_MIN:-120}
+      - VIBEPROD_PORT=${VIBEPROD_PORT:-8000}
+      - VIBEPROD_HOST_DATA_DIR=${PWD}/data
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
