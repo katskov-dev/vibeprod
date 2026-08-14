@@ -236,7 +236,7 @@ needed).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). © 2026 Pavel Katskov.
 
 Built on [opencode](https://github.com/sst/opencode) by Anomaly Innovations,
 also MIT.
