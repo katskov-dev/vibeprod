@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems do **not** belong here — see [SECURITY.md](../blob/main/SECURITY.md)
+        for the private reporting channel.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how-run
+    attributes:
+      label: How are you running harness?
+      options:
+        - ./run.sh (on the host)
+        - docker compose
+        - other (describe above)
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python version
+      placeholder: "macOS 15.5, Python 3.12.4"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Broker log around the failure
+      description: >
+        If a worker container is involved, `docker logs <container>` usually has
+        the real error. Please redact API keys and bot tokens.
+      render: shell

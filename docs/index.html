@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harness — a self-hosted control plane for opencode agents</title>
+<meta name="description" content="Run AI agents on your own machine: a web UI over many sessions, one Docker container each, plus cron schedules, webhooks and Telegram. MIT licensed.">
+<style>
+/* ── tokens ─────────────────────────────────────────────────────────────── */
+:root {
+  --ground:   #f7f8fa;
+  --band:     #eef0f4;
+  --surface:  #ffffff;
+  --ink:      #14161a;
+  --ink-soft: #3c424c;
+  --muted:    #5d6470;
+  --line:     #dfe3e9;
+  --line-firm:#c6ccd6;
+
+  /* сигнальные цвета = четыре способа запустить агента */
+  --sig-manual:   #0284c7;
+  --sig-schedule: #c2560b;
+  --sig-webhook:  #7c3aed;
+  --sig-chat:     #047857;
+
+  --accent:      var(--sig-manual);
+  --accent-ink:  #ffffff;
+  --warn-bg:     #fdf4e7;
+  --warn-line:   #d9a441;
+  --warn-ink:    #7a4d05;
+
+  --shot-frame:  #d2d7de;
+
+  --display: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --col: 1080px;
+  --gutter: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground:   #0b0c0e;
+    --band:     #101216;
+    --surface:  #16181d;
+    --ink:      #e8eaee;
+    --ink-soft: #c2c7d0;
+    --muted:    #8b929e;
+    --line:     #23262c;
+    --line-firm:#343943;
+
+    --sig-manual:   #38bdf8;
+    --sig-schedule: #fb923c;
+    --sig-webhook:  #a78bfa;
+    --sig-chat:     #34d399;
+
+    --accent-ink: #04222f;
+    --warn-bg:    #1f1708;
+    --warn-line:  #8a6520;
+    --warn-ink:   #f2c66b;
+
+    --shot-frame: #2a2e36;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:   #0b0c0e;
+  --band:     #101216;
+  --surface:  #16181d;
+  --ink:      #e8eaee;
+  --ink-soft: #c2c7d0;
+  --muted:    #8b929e;
+  --line:     #23262c;
+  --line-firm:#343943;
+
+  --sig-manual:   #38bdf8;
+  --sig-schedule: #fb923c;
+  --sig-webhook:  #a78bfa;
+  --sig-chat:     #34d399;
+
+  --accent-ink: #04222f;
+  --warn-bg:    #1f1708;
+  --warn-line:  #8a6520;
+  --warn-ink:   #f2c66b;
+
+  --shot-frame: #2a2e36;
+}
+
+:root[data-theme="light"] {
+  --ground:   #f7f8fa;
+  --band:     #eef0f4;
+  --surface:  #ffffff;
+  --ink:      #14161a;
+  --ink-soft: #3c424c;
+  --muted:    #5d6470;
+  --line:     #dfe3e9;
+  --line-firm:#c6ccd6;
+
+  --sig-manual:   #0284c7;
+  --sig-schedule: #c2560b;
+  --sig-webhook:  #7c3aed;
+  --sig-chat:     #047857;
+
+  --accent-ink: #ffffff;
+  --warn-bg:    #fdf4e7;
+  --warn-line:  #d9a441;
+  --warn-ink:   #7a4d05;
+
+  --shot-frame: #d2d7de;
+}
+
+/* ── base ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+
+code, kbd { font-family: var(--display); font-size: 0.88em; }
+
+/* ── layout primitives ──────────────────────────────────────────────────── */
+.band { padding: clamp(3.5rem, 9vw, 6.5rem) var(--gutter); }
+.band--alt { background: var(--band); border-block: 1px solid var(--line); }
+.wrap { max-width: var(--col); margin-inline: auto; }
+
+.eyebrow {
+  font-family: var(--display);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin: 0 0 0.9rem;
+}
+
+/* Моноширинный оставлен для «голоса системы»: марка, ярлыки, код, таблица.
+   Заголовки — гротеском, иначе длинные строки читаются как листинг. */
+.section-title {
+  font-family: var(--body);
+  font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  margin-bottom: 0.75rem;
+}
+
+.lede { font-size: 1.06rem; color: var(--ink-soft); max-width: 62ch; margin: 0; }
+
+/* ── hero ───────────────────────────────────────────────────────────────── */
+.hero {
+  padding: clamp(4rem, 11vw, 7.5rem) var(--gutter) clamp(3rem, 7vw, 4.5rem);
+  text-align: center;
+}
+.hero__mark {
+  font-family: var(--display);
+  font-size: clamp(2.9rem, 9vw, 5rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  margin-bottom: 1.35rem;
+}
+.hero__thesis {
+  font-size: clamp(1.2rem, 2.9vw, 1.6rem);
+  line-height: 1.4;
+  color: var(--ink);
+  max-width: 34ch;
+  margin: 0 auto 1.1rem;
+  font-weight: 450;
+}
+.hero__sub { color: var(--muted); max-width: 56ch; margin: 0 auto 2.2rem; }
+
+.hero__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; }
+
+.btn {
+  font-family: var(--display);
+  font-size: 0.88rem;
+  padding: 0.7rem 1.35rem;
+  border-radius: 3px;
+  border: 1px solid var(--line-firm);
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--surface);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn--primary:hover { filter: brightness(1.08); }
+
+.badges {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem;
+  justify-content: center;
+  margin-top: 1.9rem;
+  font-family: var(--display);
+  font-size: 0.73rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── dispatch board: четыре входа → брокер → контейнеры ─────────────────── */
+.dispatch {
+  max-width: 940px;
+  margin: clamp(3rem, 7vw, 4.5rem) auto 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(0.9rem, 3vw, 2rem);
+  text-align: left;
+}
+
+.col-label {
+  font-family: var(--display);
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
+}
+.sources, .workers { display: flex; flex-direction: column; gap: 0.5rem; }
+.source {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--sig);
+  border-radius: 2px;
+  font-family: var(--display);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  animation: slide-in 0.5s cubic-bezier(.2,.7,.3,1) backwards;
+}
+.source:nth-child(1) { --sig: var(--sig-manual);   animation-delay: 0.05s; }
+.source:nth-child(2) { --sig: var(--sig-schedule); animation-delay: 0.14s; }
+.source:nth-child(3) { --sig: var(--sig-webhook);  animation-delay: 0.23s; }
+.source:nth-child(4) { --sig: var(--sig-chat);     animation-delay: 0.32s; }
+.source b { color: var(--sig); font-weight: 600; }
+.source span { color: var(--muted); font-size: 0.74rem; }
+
+@keyframes slide-in { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+@keyframes fade-up  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.hub {
+  display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
+  padding: 1.1rem 1rem;
+  border: 1px solid var(--line-firm);
+  border-radius: 3px;
+  background: var(--surface);
+  animation: fade-up 0.5s 0.4s cubic-bezier(.2,.7,.3,1) backwards;
+}
+.hub__name { font-family: var(--display); font-weight: 600; font-size: 0.92rem; }
+.hub__meta { font-family: var(--display); font-size: 0.67rem; color: var(--muted); letter-spacing: 0.06em; }
+
+.worker {
+  padding: 0.6rem 0.85rem;
+  border: 1px dashed var(--line-firm);
+  border-radius: 2px;
+  font-family: var(--display);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  background: var(--surface);
+  animation: fade-up 0.5s cubic-bezier(.2,.7,.3,1) backwards;
+}
+.worker:nth-child(1) { animation-delay: 0.5s; }
+.worker:nth-child(2) { animation-delay: 0.58s; }
+.worker:nth-child(3) { animation-delay: 0.66s; }
+.worker em { font-style: normal; color: var(--muted); font-size: 0.72rem; display: block; }
+
+.dispatch__note {
+  grid-column: 1 / -1;
+  font-family: var(--display);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .dispatch { grid-template-columns: 1fr; }
+  .hub { flex-direction: row; justify-content: center; gap: 0.9rem; }
+}
+
+/* ── prose + feature rows ───────────────────────────────────────────────── */
+.feature { display: grid; gap: clamp(1.5rem, 4vw, 2.5rem); }
+.feature + .feature { margin-top: clamp(3.5rem, 8vw, 5.5rem); }
+.feature__head { max-width: 64ch; }
+.feature p { color: var(--ink-soft); }
+.feature p:last-child { margin-bottom: 0; }
+
+.shot {
+  margin: 0;
+  border: 1px solid var(--shot-frame);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption {
+  font-family: var(--display);
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0.6rem 0.85rem;
+  border-top: 1px solid var(--line);
+  letter-spacing: 0.03em;
+}
+
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; }
+
+/* ── code ───────────────────────────────────────────────────────────────── */
+.code {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  font-family: var(--display);
+  font-size: 0.83rem;
+  line-height: 1.75;
+  color: var(--ink-soft);
+  margin: 0;
+}
+.code .c { color: var(--muted); }
+.code .p { color: var(--accent); }
+
+/* ── comparison table ───────────────────────────────────────────────────── */
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 0.87rem; }
+th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th {
+  font-family: var(--display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-firm);
+  white-space: nowrap;
+  position: sticky; top: 0;
+  background: var(--surface);
+}
+thead th.is-us { color: var(--accent); }
+tbody th {
+  font-weight: 450;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  position: sticky; left: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+td.is-us { background: color-mix(in srgb, var(--accent) 8%, transparent); font-weight: 500; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+.y { color: var(--sig-chat); font-weight: 600; }
+.n { color: var(--muted); }
+.q { color: var(--sig-schedule); }
+.table-note { font-size: 0.85rem; color: var(--muted); margin: 0.9rem 0 0; max-width: 70ch; }
+
+/* ── verdict cards ──────────────────────────────────────────────────────── */
+.verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-top: 2rem; }
+.verdict { border: 1px solid var(--line); border-radius: 4px; padding: 1.25rem 1.35rem; background: var(--surface); }
+.verdict h3 { font-family: var(--display); font-size: 0.95rem; margin-bottom: 0.5rem; }
+.verdict p { margin: 0; color: var(--ink-soft); font-size: 0.95rem; }
+.verdict--yes { border-top: 2px solid var(--sig-chat); }
+.verdict--no  { border-top: 2px solid var(--muted); }
+
+/* ── warning ────────────────────────────────────────────────────────────── */
+.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 4px;
+  padding: 1.15rem 1.35rem;
+  color: var(--warn-ink);
+  margin-top: 2rem;
+}
+.warn h3 { font-family: var(--display); font-size: 0.9rem; margin-bottom: 0.45rem; }
+.warn p { margin: 0; font-size: 0.94rem; color: inherit; }
+.warn a { color: inherit; }
+
+/* ── footer ─────────────────────────────────────────────────────────────── */
+footer {
+  padding: 3rem var(--gutter);
+  border-top: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-content: space-between; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1 class="hero__mark">harness</h1>
+    <p class="hero__thesis">Your agents, your machine, your keys.</p>
+    <p class="hero__sub">
+      A self-hosted control plane for <a href="https://github.com/sst/opencode">opencode</a>.
+      One web UI over many sessions — each in its own Docker container — started by hand,
+      by cron, by webhook, or from a chat.
+    </p>
+
+    <div class="hero__actions">
+      <a class="btn btn--primary" href="https://github.com/OWNER/harness">Get it on GitHub</a>
+      <a class="btn" href="#quickstart">Quick start</a>
+      <a class="btn" href="#comparison">How it compares</a>
+    </div>
+
+    <p class="badges">
+      <span>MIT licensed</span>
+      <span>~6k lines of Python</span>
+      <span>SQLite, no queue</span>
+      <span>Bring your own key</span>
+    </p>
+
+    <div class="dispatch">
+      <div>
+        <p class="col-label">Triggers</p>
+        <div class="sources">
+        <div class="source"><b>manual</b><span>you, in the web UI</span></div>
+        <div class="source"><b>schedule</b><span>cron, with a timezone</span></div>
+        <div class="source"><b>webhook</b><span>POST from CI or anywhere</span></div>
+        <div class="source"><b>telegram</b><span>a message to your bot</span></div>
+        </div>
+      </div>
+
+      <div class="hub">
+        <div class="hub__name">broker</div>
+        <div class="hub__meta">FastAPI · SQLite</div>
+      </div>
+
+      <div>
+        <p class="col-label">One container per session</p>
+        <div class="workers">
+        <div class="worker">code-reviewer <em>own workspace · own port · own token</em></div>
+        <div class="worker">nightly-tests <em>history kept on a docker volume</em></div>
+        <div class="worker">oncall-triage <em>killed after its idle timeout</em></div>
+        </div>
+      </div>
+
+      <p class="dispatch__note">nothing leaves the machine — not the code, not the keys</p>
+    </div>
+  </div>
+</header>
+
+<section class="band band--alt">
+  <div class="wrap">
+    <p class="eyebrow">The problem</p>
+    <h2 class="section-title">Terminal agents don't schedule themselves</h2>
+    <p class="lede">
+      opencode is an excellent coding agent, and it lives in your terminal — one session,
+      in front of you, while you watch it. The moment you want a second one, or a nightly run,
+      or an agent that answers a webhook from CI, you are on your own.
+    </p>
+    <p class="lede" style="margin-top:1rem">
+      The hosted products solve that, and charge for it: your code goes to their sandbox,
+      your automation lives behind their subscription. harness solves it on your hardware
+      instead. It is one FastAPI process with a SQLite file next to it — no queue,
+      no Kubernetes, no build step in the frontend.
+    </p>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <p class="eyebrow">What you get</p>
+    <h2 class="section-title">A console for agents that keep running</h2>
+
+    <div class="feature" style="margin-top:2.5rem">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem">Every session, in one place</h3>
+        <p>
+          Sessions are tagged by what started them, so a nightly cron run and a Telegram
+          question sit in the same list with the same transcript. A worker can be restarted
+          without losing the thread — history lives on a Docker volume, not in the container.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="screenshots/sessions.png" alt="The sessions list, with runs labelled telegram, schedule and webhook alongside their status." loading="lazy" width="1440" height="900">
+        <figcaption>Sessions — labelled by trigger, live status on the right</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem">Watch the agent think</h3>
+        <p>
+          The broker reads the worker's SSE stream and fans it out over a WebSocket.
+          Tool calls, reasoning blocks and todo lists appear as they happen; compact events
+          go to SQLite and the full transcript is kept when the session goes idle.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="screenshots/chat.png" alt="A session transcript showing collapsed tool calls for a GitHub lookup, a file read and a test run, followed by the agent's written review." loading="lazy" width="1440" height="900">
+        <figcaption>A code-review session — tool calls collapse, the answer stays readable</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem">Agents defined once, reused everywhere</h3>
+        <p>
+          An agent is a row in SQLite — model, mode, temperature, permissions, system prompt —
+          plus the MCP servers and skills attached to it. At session start that becomes a stock
+          <code>opencode.json</code> and a set of markdown files in the worker's workspace.
+          Nothing proprietary: what the worker sees is ordinary opencode configuration.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="screenshots/agents.png" alt="The agents page listing code-reviewer, general, oncall-triage, release-notes and web-researcher, each with its model, MCP servers and skills." loading="lazy" width="1440" height="900">
+        <figcaption>Agents — model, attached MCP servers and skills on each card</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem">Automation that ships with the box</h3>
+        <p>
+          Cron schedules carry a timezone and record every run. Webhooks give any external
+          system a URL to start an agent, optionally guarded by a secret, optionally blocking
+          until the answer is ready. Telegram runs inside the broker on long polling — no
+          public URL, no extra dependency — and streams the reply by editing the bot's message.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="screenshots/schedules.png" alt="Three cron schedules with their expressions, timezone, next run time and last result." loading="lazy" width="1440" height="900">
+        <figcaption>Schedules — cron with a timezone, next and last run on every card</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem">A browser, a database, an API — one click each</h3>
+        <p>
+          The MCP catalog holds reusable servers: ordinary local and remote ones, and Docker
+          services that harness starts on demand. The bundled Playwright service gives any
+          agent a real browser in its own container, on a private network the workers share.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="screenshots/mcp-catalog.png" alt="The MCP catalog listing a built-in Playwright docker service plus GitHub, Postgres and Sentry servers." loading="lazy" width="1440" height="900">
+        <figcaption>MCP catalog — attach any entry to an agent from its card</figcaption>
+      </figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem">Keys you can actually verify</h3>
+        <p>
+          Provider keys live in your database and are injected into workers as environment
+          variables. <strong>Check</strong> spins up a throwaway container with the same
+          opencode image and your key, confirms the provider registers, lists the models it
+          offers and makes a real generation call — the exact path a worker will take, so a
+          bad key fails here instead of halfway through a scheduled run.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="screenshots/providers.png" alt="The providers page showing Anthropic, DeepSeek and OpenAI, each with a masked key, available models and a successful test call." loading="lazy" width="1440" height="900">
+        <figcaption>Providers — verified against a real container, not a regex</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="band band--alt">
+  <div class="wrap">
+    <p class="eyebrow">The unusual part</p>
+    <h2 class="section-title">The agent configures the platform</h2>
+    <p class="lede">
+      harness ships with an operator agent that reaches back into harness itself through a
+      private MCP server living inside the broker. Describe what you want on the home screen —
+      <em>“review agent for pull requests, give it GitHub, run it from a webhook”</em> — and it
+      creates the agents, attaches the MCP servers and skills, adds the providers, and wires up
+      the webhook. You watch it happen in a normal session transcript, and nothing gets deleted
+      without your say-so.
+    </p>
+    <p class="table-note" style="margin-top:1.1rem">
+      The operator's MCP endpoint is not in the catalog and cannot be attached to other agents:
+      its URL and bearer secret are injected only into operator sessions.
+    </p>
+  </div>
+</section>
+
+<section class="band" id="comparison">
+  <div class="wrap">
+    <p class="eyebrow">Comparison</p>
+    <h2 class="section-title">Where harness wins, and where it doesn't</h2>
+    <p class="lede" style="margin-bottom:2rem">
+      This is a small project, not a competitor to funded platforms on breadth or maturity.
+      It wins on one axis — self-hosted automation with no cloud tier — and loses badly on
+      another: it has no authentication or multi-user support at all.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">&nbsp;</th>
+            <th scope="col" class="is-us">harness</th>
+            <th scope="col">OpenHands</th>
+            <th scope="col">opencode</th>
+            <th scope="col">Goose</th>
+            <th scope="col">Devin · Jules · Codex&nbsp;cloud · Cursor&nbsp;agents</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">License</th>
+            <td class="is-us">MIT</td><td>MIT</td><td>MIT</td><td>Apache-2.0</td><td class="n">Proprietary</td>
+          </tr>
+          <tr>
+            <th scope="row">Self-hosted</th>
+            <td class="is-us"><span class="y">Only option</span></td><td>Yes, plus a managed cloud</td><td>Yes</td><td>Yes</td><td class="n">No</td>
+          </tr>
+          <tr>
+            <th scope="row">Web UI over many sessions</th>
+            <td class="is-us"><span class="y">Yes</span></td><td><span class="y">Yes</span></td><td class="n">No — TUI and serve API</td><td class="n">No — desktop and CLI</td><td>Yes, vendor-hosted</td>
+          </tr>
+          <tr>
+            <th scope="row">Container per session</th>
+            <td class="is-us"><span class="y">Yes</span></td><td><span class="y">Yes</span></td><td class="n">Runs on the host</td><td class="n">Runs on the host</td><td>Vendor sandbox</td>
+          </tr>
+          <tr>
+            <th scope="row">Cron schedules</th>
+            <td class="is-us"><span class="y">Built in</span></td><td class="q">Cloud tier</td><td class="n">No</td><td class="n">No</td><td class="q">Varies</td>
+          </tr>
+          <tr>
+            <th scope="row">Inbound webhooks</th>
+            <td class="is-us"><span class="y">Built in</span></td><td class="q">Cloud tier</td><td class="n">No</td><td class="n">No</td><td class="q">Varies</td>
+          </tr>
+          <tr>
+            <th scope="row">Chat channel (Telegram)</th>
+            <td class="is-us"><span class="y">Yes</span></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td>
+          </tr>
+          <tr>
+            <th scope="row">MCP support</th>
+            <td class="is-us"><span class="y">Yes, shared catalog</span></td><td>Yes</td><td>Yes</td><td>Yes</td><td class="q">Varies</td>
+          </tr>
+          <tr>
+            <th scope="row">Agent that configures the platform</th>
+            <td class="is-us"><span class="y">Yes</span></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td>
+          </tr>
+          <tr>
+            <th scope="row">Bring your own key</th>
+            <td class="is-us"><span class="y">Yes</span></td><td>Yes</td><td>Yes</td><td>Yes</td><td class="n">Subscription</td>
+          </tr>
+          <tr>
+            <th scope="row">Git and pull-request workflow</th>
+            <td class="is-us q">Via the agent and git</td><td><span class="y">First-class</span></td><td><span class="y">First-class</span></td><td>Yes</td><td><span class="y">First-class</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Auth, multi-user, RBAC</th>
+            <td class="is-us n"><strong>None</strong></td><td>Enterprise tier</td><td class="n">n/a</td><td class="n">n/a</td><td>Yes</td>
+          </tr>
+          <tr>
+            <th scope="row">Maturity</th>
+            <td class="is-us q">Early</td><td>Large, funded</td><td>Very large</td><td>Linux Foundation</td><td>Commercial</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-note">
+      Compiled August 2026 from public documentation. Hosted products move quickly —
+      check the vendor's own pages before making a decision on this table alone.
+    </p>
+
+    <div class="verdicts">
+      <div class="verdict verdict--yes">
+        <h3>Pick harness if</h3>
+        <p>
+          You want agents on your own hardware, started by cron, webhooks and chat, with
+          per-session isolation and API keys that never leave the box.
+        </p>
+      </div>
+      <div class="verdict verdict--no">
+        <h3>Pick something else if</h3>
+        <p>
+          You need access control for a team, a hosted service with an SLA, or a mature
+          pull-request review workflow out of the box.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band band--alt" id="quickstart">
+  <div class="wrap">
+    <p class="eyebrow">Quick start</p>
+    <h2 class="section-title">Running in about a minute</h2>
+    <p class="lede" style="margin-bottom:1.75rem">
+      You need Docker and Python 3.11+ — or just Docker. The first start pulls the opencode
+      image and builds a worker image on top of it, with git and openssh so agents can work
+      with repositories.
+    </p>
+
+    <div class="split">
+      <div>
+        <p class="eyebrow">On the host</p>
+        <pre class="code"><span class="c"># clone, configure, run</span>
+git clone https://github.com/<span class="p">OWNER</span>/harness.git
+cd harness
+cp .env.example .env   <span class="c"># add one provider key</span>
+./run.sh               <span class="c"># → localhost:8000</span></pre>
+      </div>
+      <div>
+        <p class="eyebrow">In a container</p>
+        <pre class="code"><span class="c"># same thing, dockerised</span>
+git clone https://github.com/<span class="p">OWNER</span>/harness.git
+cd harness
+cp .env.example .env
+docker compose up --build</pre>
+      </div>
+    </div>
+
+    <p class="eyebrow" style="margin-top:2rem">Start an agent from anywhere</p>
+    <pre class="code">curl -X POST http://localhost:8000/api/webhooks/<span class="p">pr-review</span>/run \
+     -H <span class="p">'X-Webhook-Secret: …'</span> \
+     -H <span class="p">'Content-Type: application/json'</span> \
+     -d <span class="p">'{"prompt": "Review the diff in PR #482"}'</span></pre>
+
+    <div class="warn">
+      <h3>Before you put this on a server</h3>
+      <p>
+        The broker has no authentication, and it drives the Docker daemon — so anyone who can
+        reach its port can run code as root on the host. Compose binds it to
+        <code>127.0.0.1</code> for that reason. To reach it remotely, put it behind a reverse
+        proxy that authenticates, or a VPN. The details are in
+        <a href="https://github.com/OWNER/harness/blob/main/SECURITY.md">SECURITY.md</a>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>MIT licensed · built on <a href="https://github.com/sst/opencode">opencode</a></span>
+    <span><a href="https://github.com/OWNER/harness">github.com/OWNER/harness</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

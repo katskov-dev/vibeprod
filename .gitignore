@@ -1,0 +1,28 @@
+# --- секреты: никогда не коммитить ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- данные рантайма: sqlite, воркспейсы воркеров, логи ---
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- ос и редакторы ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

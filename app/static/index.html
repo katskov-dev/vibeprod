@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>opencode harness</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.2/dist/purify.min.js"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+  .tool-card pre { white-space: pre-wrap; word-break: break-word; }
+  .compact-card summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; min-width: 0; user-select: none; }
+  .compact-card summary::-webkit-details-marker { display: none; }
+  .compact-card .chev { transition: transform 0.15s; flex-shrink: 0; }
+  .compact-card[open] .chev { transform: rotate(90deg); }
+  .md p { margin: 0.2rem 0; }
+  .md h1, .md h2, .md h3, .md h4 { font-weight: 600; margin: 0.45rem 0 0.2rem; line-height: 1.3; }
+  .md h1 { font-size: 1.25em; } .md h2 { font-size: 1.15em; } .md h3 { font-size: 1.05em; }
+  .md ul { list-style: disc; padding-left: 1.3rem; margin: 0.2rem 0; }
+  .md ol { list-style: decimal; padding-left: 1.3rem; margin: 0.2rem 0; }
+  .md li { margin: 0.05rem 0; }
+  .md code { background: #1f2937; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+  .md pre { background: #111827; border: 1px solid #1f2937; padding: 8px 10px; border-radius: 8px; overflow-x: auto; margin: 0.3rem 0; }
+  .md pre code { background: transparent; padding: 0; font-size: 0.8em; }
+  .md a { color: #38bdf8; text-decoration: underline; }
+  .md blockquote { border-left: 2px solid #374151; padding-left: 10px; color: #9ca3af; margin: 0.3rem 0; }
+  .md hr { border-color: #27272a; margin: 0.35rem 0; }
+  .md table { border-collapse: collapse; margin: 0.3rem 0; font-size: 0.9em; }
+  .md th, .md td { border: 1px solid #374151; padding: 3px 8px; }
+  .md img { max-width: 100%; border-radius: 6px; }
+  .msg-actions { opacity: 0; transition: opacity 0.12s; }
+  .group:hover .msg-actions, .group:focus-within .msg-actions { opacity: 1; }
+</style>
+</head>
+<body class="bg-neutral-950 text-neutral-200 h-screen flex overflow-hidden">
+  <aside class="w-56 shrink-0 border-r border-neutral-800 flex flex-col">
+    <div class="p-4 border-b border-neutral-800">
+      <div class="font-semibold text-lg">harness</div>
+      <div class="text-xs text-neutral-500">opencode workers</div>
+    </div>
+    <div class="relative px-2 pb-2 border-b border-neutral-800">
+      <div class="text-xs text-neutral-500 mb-1 px-1">Проект</div>
+      <button id="project-trigger" class="w-full flex items-center justify-between gap-2 bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm hover:border-neutral-600 focus:outline-none">
+        <span id="project-current" class="truncate text-neutral-200">Все проекты</span>
+        <span id="project-caret" class="text-neutral-500 text-xs transition-transform">▾</span>
+      </button>
+      <div id="project-menu" class="hidden absolute left-2 right-2 top-[calc(100%+4px)] bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50">
+        <div id="project-menu-list" class="max-h-64 overflow-y-auto py-1"></div>
+        <div class="border-t border-neutral-800 p-1.5 flex gap-1.5">
+          <button id="project-add" class="flex-1 px-2 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">＋ Добавить</button>
+          <button id="project-manage" class="flex-1 px-2 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">Управление</button>
+        </div>
+      </div>
+    </div>
+    <nav class="p-2 space-y-1 text-sm" id="nav">
+      <button data-view="home" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60">Начать работу</button>
+      <button data-view="sessions" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60">Сессии</button>
+      <button data-view="agents" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60">Агенты</button>
+      <div class="pt-3 pb-1 px-3 text-[10px] uppercase tracking-wider text-neutral-600">Автоматизация</div>
+      <button data-view="webhooks" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Вебхуки</button>
+      <button data-view="schedules" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Расписания</button>
+      <button data-view="channels" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Каналы</button>
+      <div class="pt-3 pb-1 px-3 text-[10px] uppercase tracking-wider text-neutral-600">Каталог</div>
+      <button data-view="mcp-catalog" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">MCP</button>
+      <button data-view="skills" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Скиллы</button>
+      <div class="pt-3 pb-1 px-3 text-[10px] uppercase tracking-wider text-neutral-600">Настройки</div>
+      <button data-view="projects" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Настройки проекта</button>
+      <button data-view="providers" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Провайдеры</button>
+    </nav>
+    <div class="mt-auto p-4 text-xs text-neutral-600" id="server-info">загрузка…</div>
+  </aside>
+  <main class="flex-1 overflow-hidden" id="main"></main>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

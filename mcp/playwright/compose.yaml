@@ -1,0 +1,13 @@
+services:
+  playwright:
+    build: .
+    image: harness-playwright-mcp:latest
+    container_name: harness-playwright
+    restart: unless-stopped
+    init: true
+    networks:
+      - harness-mcp
+
+networks:
+  harness-mcp:
+    name: harness-mcp

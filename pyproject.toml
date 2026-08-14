@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "UP", "B"]
+ignore = [
+    "E501",   # длину строк держим глазами, а не линтером
+    "B008",   # Depends()/Query() в дефолтах аргументов — это идиома FastAPI
+    "B904",   # `raise HTTPException(...) from exc` — шума больше, чем пользы
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
