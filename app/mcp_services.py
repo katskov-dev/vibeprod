@@ -65,6 +65,7 @@ def ensure_running(entry):
         detach=True,
         network=entry.get("service_network") or "vibeprod-mcp",
         environment=_service_env(),
+        mem_limit=os.environ.get("VIBEPROD_MCP_SERVICE_MEM") or "768m",
         restart_policy={"Name": "unless-stopped"},
     )
 

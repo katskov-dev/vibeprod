@@ -91,6 +91,7 @@ def run_worker(session_id, host_ws_dir, storage_name, auth_token, extra_provider
         labels={LABEL: session_id},
         name=f"vibeprod-{session_id[:12]}",
         network=MCP_NETWORK,
+        mem_limit=os.environ.get("VIBEPROD_WORKER_MEM") or "1024m",
         extra_hosts={"host.docker.internal": "host-gateway"},
     )
     return container.id

@@ -30,6 +30,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY:-}
+    mem_limit: ${VIBEPROD_BROKER_MEM:-384m}
     networks:
       - vibeprod-mcp
     restart: unless-stopped
@@ -47,6 +48,7 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    mem_limit: ${VIBEPROD_MINIO_MEM:-256m}
     networks:
       - vibeprod-mcp
     restart: unless-stopped
