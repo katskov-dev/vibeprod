@@ -6,6 +6,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 
 from .. import db
+from .. import events
 from .. import session_manager
 
 router = APIRouter(prefix="/api")
@@ -142,6 +143,7 @@ async def run_webhook(slug: str, payload: dict = None, wait: int = 0, request: R
     except ValueError as exc:
         raise HTTPException(404, str(exc))
     db.execute("UPDATE webhooks SET last_run=datetime('now') WHERE id=?", (row["id"],))
+    events.emit("webhook.received", {"slug": slug, "session_id": sid, "prompt": prompt, "title": title})
     from ..main import spawn_start
 
     spawn_start(sid, prompt)

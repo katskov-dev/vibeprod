@@ -5,9 +5,15 @@ from .. import db
 router = APIRouter(prefix="/api")
 
 
+def _mask(row):
+    d = dict(row)
+    d.pop("file_token", None)
+    return d
+
+
 @router.get("/projects")
 def list_projects():
-    return db.query(
+    rows = db.query(
         """
         SELECT p.*,
           (SELECT COUNT(*) FROM agents a WHERE a.project_id=p.id) AS agent_count,
@@ -17,6 +23,7 @@ def list_projects():
         FROM projects p ORDER BY p.name
         """
     )
+    return [_mask(r) for r in rows]
 
 
 @router.post("/projects")
@@ -24,11 +31,13 @@ def create_project(payload: dict):
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(400, "name обязателен")
+    import secrets
+
     pid = db.execute(
-        "INSERT INTO projects(name, description) VALUES(?,?)",
-        (name, payload.get("description") or ""),
+        "INSERT INTO projects(name, description, file_token) VALUES(?,?,?)",
+        (name, payload.get("description") or "", secrets.token_urlsafe(24)),
     )
-    return db.query_one("SELECT * FROM projects WHERE id=?", (pid,))
+    return _mask(db.query_one("SELECT * FROM projects WHERE id=?", (pid,)))
 
 
 @router.put("/projects/{project_id}")
@@ -43,7 +52,7 @@ def update_project(project_id: int, payload: dict):
         "UPDATE projects SET name=?, description=? WHERE id=?",
         (name, payload.get("description", row["description"]), project_id),
     )
-    return db.query_one("SELECT * FROM projects WHERE id=?", (project_id,))
+    return _mask(db.query_one("SELECT * FROM projects WHERE id=?", (project_id,)))
 
 
 @router.delete("/projects/{project_id}")
@@ -69,4 +78,13 @@ async def delete_project(project_id: int):
     db.execute("DELETE FROM agents WHERE project_id=?", (project_id,))
     db.execute("DELETE FROM providers WHERE project_id=?", (project_id,))
     db.execute("DELETE FROM projects WHERE id=?", (project_id,))
+    # файлы проекта в MinIO
+    try:
+        from .. import files_store
+
+        files_store.delete_all(project_id)
+    except Exception:
+        import logging
+
+        logging.getLogger("vibeprod").warning("не удалось удалить файлы проекта %s", project_id, exc_info=True)
     return {"ok": True}

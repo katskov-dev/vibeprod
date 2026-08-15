@@ -80,6 +80,41 @@ function openModal(title, bodyHtml, onSubmit) {
   };
 }
 
+function openImageLightbox(src, name = '') {
+  const root = $('#modal-root');
+  let dl = src;
+  try {
+    const u = new URL(src, window.location.origin);
+    if (u.pathname.startsWith('/api/files/content')) {
+      u.searchParams.set('download', 'true');
+      dl = u.toString();
+    }
+  } catch {}
+  root.innerHTML = `
+    <div class="fixed inset-0 bg-black/80 z-50 flex flex-col" id="imgbox">
+      <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-neutral-900/95 border-b border-neutral-800 shrink-0" id="imgbox-bar">
+        <div class="text-sm text-neutral-300 truncate">${esc(name || new URL(src, window.location.origin).hostname)}</div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a href="${esc(dl)}" download class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium no-underline">Скачать</a>
+          <a href="${esc(src)}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm no-underline">Открыть в новой вкладке</a>
+          <button class="text-neutral-400 hover:text-white text-2xl leading-none px-2">&times;</button>
+        </div>
+      </div>
+      <div class="flex-1 flex items-center justify-center p-4 min-h-0 cursor-zoom-out" id="imgbox-stage">
+        <img src="${esc(src)}" alt="" class="max-w-full max-h-full object-contain rounded-lg shadow-2xl">
+      </div>
+    </div>`;
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => {
+    root.innerHTML = '';
+    document.removeEventListener('keydown', onKey);
+  };
+  const bar = $('#imgbox-bar');
+  if (bar) bar.addEventListener('click', (e) => e.stopPropagation());
+  $('#imgbox').onclick = close;
+  document.addEventListener('keydown', onKey);
+}
+
 function formInput(label, name, value = '', placeholder = '', type = 'text', extra = '') {
   return `<label class="block text-sm mb-3">
     <span class="text-neutral-400 text-xs">${label}</span>
@@ -164,9 +199,11 @@ async function refreshCurrentView() {
   else if (currentView === 'sessions') renderSessions();
   else if (currentView === 'agents') renderAgents();
   else if (currentView === 'providers') renderProviders();
+  else if (currentView === 'files') renderFiles();
   else if (currentView === 'mcp-catalog') renderCatalog();
   else if (currentView === 'skills') renderSkills();
   else if (currentView === 'webhooks') renderAutomation('webhooks');
+  else if (currentView === 'outwebhooks') renderAutomation('outwebhooks');
   else if (currentView === 'schedules' || currentView === 'automation') renderAutomation('schedules');
   else if (currentView === 'channels') renderChannels();
   else if (currentView === 'projects') renderProjects();
@@ -184,9 +221,11 @@ function showView(view, arg) {
   else if (view === 'sessions') renderSessions(arg);
   else if (view === 'agents') renderAgents();
   else if (view === 'providers') renderProviders();
+  else if (view === 'files') renderFiles();
   else if (view === 'mcp-catalog') renderCatalog();
   else if (view === 'skills') renderSkills();
   else if (view === 'webhooks') renderAutomation('webhooks');
+  else if (view === 'outwebhooks') renderAutomation('outwebhooks');
   else if (view === 'schedules' || view === 'automation') renderAutomation('schedules');
   else if (view === 'channels') renderChannels(arg);
   else if (view === 'projects') renderProjects();
@@ -202,6 +241,25 @@ $('#project-trigger').onclick = (e) => {
 $('#project-add').onclick = () => { setProjectMenu(false); projectModal(null, { selectAfterCreate: true }); };
 $('#project-manage').onclick = () => { setProjectMenu(false); showView('projects'); };
 document.addEventListener('click', (e) => {
+  const mdImg = e.target.closest('.md img');
+  if (mdImg && !mdImg.closest('a')) {
+    e.preventDefault();
+    const fig = mdImg.closest('.md-img');
+    const nameEl = fig ? fig.querySelector('.md-img-name') : null;
+    openImageLightbox(mdImg.src, nameEl ? nameEl.textContent : '');
+    return;
+  }
+  const mdLink = e.target.closest('.md a');
+  if (mdLink) {
+    let u;
+    try { u = new URL(mdLink.href, window.location.origin); } catch { u = null; }
+    if (u && u.pathname.startsWith('/api/files/content') && /\.(html?|xhtml?|htm)$/i.test(u.searchParams.get('path') || '')) {
+      e.preventDefault();
+      const path = u.searchParams.get('path') || '';
+      openFilePreview({ name: path, url: mdLink.href, size: 0, content_type: 'text/html' });
+      return;
+    }
+  }
   const menu = $('#project-menu');
   if (menu && !menu.classList.contains('hidden')) {
     if (!e.target.closest('#project-trigger') && !e.target.closest('#project-menu')) setProjectMenu(false);
@@ -233,52 +291,98 @@ const HOME_EXAMPLES = [
 async function renderHome() {
   const main = $('#main');
   let info = { ready: false };
-  try { info = await api.get('/api/guardian'); } catch {}
+  let agents = [];
+  try {
+    const [g, a] = await Promise.all([
+      api.get('/api/guardian'),
+      api.get('/api/agents' + projQuery()),
+    ]);
+    info = g; agents = a;
+  } catch {}
+  const options = [
+    ...(info.ready ? [{ v: info.agent_id, l: info.name, tag: 'оператор' }] : []),
+    ...agents.map(a => ({ v: a.id, l: a.name, tag: a.mode === 'subagent' ? 'subagent' : '' })),
+  ];
+  const optLabel = (o) => `${esc(o.l)}${o.tag ? ` · ${esc(o.tag)}` : ''}`;
   main.innerHTML = `
-    <div class="h-full overflow-y-auto">
-      <div class="max-w-2xl mx-auto px-6 py-16 flex flex-col items-start">
-        <div class="text-2xl font-semibold mb-1">Что нужно сделать?</div>
-        <div class="text-sm text-neutral-500 mb-8">Опишите задачу — агент-оператор сам настроит проект:
-          создаст агентов, подключит MCP и скиллы, добавит провайдеров, вебхуки и расписания.
-          Ничего удалять без вашего подтверждения он не будет.</div>
+    <div class="relative h-full overflow-y-auto">
+      <div class="pointer-events-none absolute inset-0 overflow-hidden">
+        <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[46rem] h-[28rem] rounded-full bg-sky-500/10 blur-3xl"></div>
+        <div class="absolute top-1/3 -left-28 w-96 h-96 rounded-full bg-indigo-500/10 blur-3xl"></div>
+        <div class="absolute top-1/4 -right-28 w-96 h-96 rounded-full bg-fuchsia-500/10 blur-3xl"></div>
+      </div>
+      <div class="relative max-w-2xl mx-auto px-6 pt-24 pb-16 flex flex-col items-center">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center mb-6 shadow-lg shadow-sky-500/25">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"></path>
+            <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"></path>
+          </svg>
+        </div>
+        <div class="text-4xl font-bold tracking-tight text-center bg-gradient-to-r from-white via-sky-200 to-indigo-300 bg-clip-text text-transparent">Чем помочь сегодня?</div>
+        <div class="text-sm text-neutral-400 mt-3 text-center max-w-lg">Опишите задачу — агент сам настроит проект: создаст агентов, подключит MCP и скиллы, добавит провайдеров, вебхуки и расписания.</div>
         ${info.ready ? '' : `
-        <div class="w-full mb-6 px-4 py-3 rounded-lg border border-amber-900/60 bg-amber-950/40 text-amber-300 text-sm">
+        <div class="w-full mt-6 px-4 py-3 rounded-xl border border-amber-900/60 bg-amber-950/40 text-amber-300 text-sm text-center">
           Агент-оператор не найден — перезапустите сервер.
         </div>`}
-        <textarea id="home-prompt" rows="4" placeholder="Например: создай агента для проверки сайта с подключённым playwright…"
-          class="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-sky-600 resize-none"></textarea>
-        <div class="flex items-center gap-3 mt-4">
-          <button id="home-go" class="px-5 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium ${info.ready ? '' : 'opacity-40 pointer-events-none'}">Начать</button>
-          <span class="text-xs text-neutral-600">откроется сессия с агентом-оператором</span>
+        <div class="w-full mt-8">
+          <div id="home-composer" class="rounded-2xl border border-neutral-700/80 bg-neutral-900/90 shadow-2xl shadow-black/40 backdrop-blur transition-colors focus-within:border-sky-500/70">
+            <textarea id="home-prompt" rows="2" placeholder="Опишите, что нужно сделать… Например: создай агента для проверки сайта с подключённым playwright"
+              class="w-full bg-transparent px-5 pt-5 pb-3 text-[15px] leading-relaxed resize-none focus:outline-none placeholder:text-neutral-600"></textarea>
+            <div class="flex items-center justify-between gap-3 px-3 pb-3">
+              <div class="relative shrink-0">
+                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                <select name="agent_id" ${options.length ? '' : 'disabled'}
+                  class="appearance-none bg-neutral-800/80 border border-neutral-700 hover:border-neutral-600 rounded-xl pl-6 pr-8 py-2 text-sm text-neutral-200 cursor-pointer focus:outline-none focus:border-sky-500 disabled:opacity-40">
+                  ${options.map(o => `<option value="${o.v}" ${options[0] && o.v === options[0].v ? 'selected' : ''}>${optLabel(o)}</option>`).join('') || '<option>нет агентов</option>'}
+                </select>
+                <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 text-[10px]">▾</span>
+              </div>
+              <button id="home-go" class="px-5 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-sm font-semibold shadow-lg shadow-sky-600/25 transition-all ${options.length ? '' : 'opacity-40 pointer-events-none'}">Начать</button>
+            </div>
+          </div>
+          <div id="home-error" class="text-sm text-red-400 mt-3 text-center"></div>
+          <div class="text-[11px] text-neutral-600 text-center mt-3">Enter — отправить · Shift+Enter — новая строка</div>
         </div>
-        <div id="home-error" class="text-sm text-red-400 mt-3"></div>
-        <div class="mt-10 w-full">
-          <div class="text-[10px] uppercase tracking-wider text-neutral-600 mb-2">Примеры</div>
-          <div class="flex flex-wrap gap-2" id="home-examples">
-            ${HOME_EXAMPLES.map(e => `<button class="home-ex px-3 py-1.5 rounded-full border border-neutral-800 hover:border-sky-700 text-xs text-neutral-400 hover:text-neutral-200" data-t="${esc(e)}">${esc(e)}</button>`).join('')}
+        <div class="mt-12 w-full">
+          <div class="text-[10px] uppercase tracking-widest text-neutral-600 mb-3 text-center">Попробуйте</div>
+          <div class="flex flex-wrap justify-center gap-2" id="home-examples">
+            ${HOME_EXAMPLES.map(e => `<button class="home-ex px-3.5 py-2 rounded-full border border-neutral-800 bg-neutral-900/60 hover:border-sky-700 hover:bg-neutral-800/70 hover:text-neutral-100 text-xs text-neutral-400 transition-colors" data-t="${esc(e)}">${esc(e)}</button>`).join('')}
           </div>
         </div>
       </div>
     </div>`;
-  if (!info.ready) return;
   const prompt = $('#home-prompt');
   const err = $('#home-error');
+  const autoGrow = (ta) => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 220) + 'px';
+  };
   $$('.home-ex', main).forEach(b => b.onclick = () => {
     prompt.value = b.dataset.t;
     prompt.focus();
+    autoGrow(prompt);
   });
-  $('#home-go').onclick = async () => {
+  prompt.addEventListener('input', () => autoGrow(prompt));
+  prompt.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $('#home-go').click();
+    }
+  });
+  const go = $('#home-go');
+  go.onclick = async () => {
     const text = prompt.value.trim();
     if (!text) { err.textContent = 'Введите промпт'; prompt.focus(); return; }
-    const go = $('#home-go');
+    if (!options.length) { err.textContent = 'Нет агентов — создайте агента в разделе «Агенты»'; return; }
     go.disabled = true;
     err.textContent = '';
     try {
+      const sel = $('[name=agent_id]', main);
       const s = await api.post('/api/sessions', {
-        agent_id: info.agent_id,
+        agent_id: sel ? +sel.value : info.agent_id,
         title: text.slice(0, 60),
         prompt: text,
-        source: 'guardian',
+        source: !sel || sel.value === String(info.agent_id) ? 'guardian' : 'manual',
         project_id: currentProject || info.project_id,
       });
       showView('sessions', s.id);
@@ -362,6 +466,58 @@ const rawTexts = new Map();
 let generating = false;
 let pendingUserBubble = null;
 
+function rewriteFileLinks(html) {
+  if (typeof DOMPurify === 'undefined') return html;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const base = window.location.origin;
+  tpl.content.querySelectorAll('a[href], img[src]').forEach((node) => {
+    const attr = node.hasAttribute('href') ? 'href' : 'src';
+    let u;
+    try { u = new URL(node.getAttribute(attr), base); } catch { return; }
+    if (u.pathname.startsWith('/api/files/content')) {
+      node.setAttribute(attr, base + u.pathname + u.search);
+    }
+  });
+  decorateImages(tpl.content, base);
+  return tpl.innerHTML;
+}
+
+function decorateImages(root, base) {
+  root.querySelectorAll('img[src]').forEach((img) => {
+    if (img.closest('a')) return;
+    let u;
+    try { u = new URL(img.getAttribute('src'), base); } catch { return; }
+    let name = '';
+    let statUrl = '';
+    if (u.pathname.startsWith('/api/files/content')) {
+      const path = u.searchParams.get('path') || '';
+      name = path.split('/').pop() || u.hostname;
+      const p = new URLSearchParams(u.search);
+      p.set('path', path);
+      statUrl = `${base}/api/files/stat?${p.toString()}`;
+    } else {
+      name = u.hostname;
+    }
+    const fig = document.createElement('figure');
+    fig.className = 'md-img';
+    img.replaceWith(fig);
+    fig.appendChild(img);
+    const cap = document.createElement('figcaption');
+    cap.innerHTML = `<span class="md-img-name" title="${esc(name)}">${esc(name)}</span>`;
+    if (statUrl) {
+      const sizeEl = document.createElement('span');
+      sizeEl.className = 'md-img-size';
+      cap.appendChild(sizeEl);
+      fetch(statUrl)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d && d.size != null) sizeEl.textContent = fmtSize(d.size); })
+        .catch(() => {});
+    }
+    fig.appendChild(cap);
+  });
+}
+
 function renderMarkdown(text) {
   const src = String(text ?? '')
     .replace(/[ \t]+\n/g, '\n')
@@ -370,7 +526,7 @@ function renderMarkdown(text) {
   if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
     try {
       marked.setOptions({ gfm: true, breaks: true });
-      return DOMPurify.sanitize(marked.parse(src));
+      return rewriteFileLinks(DOMPurify.sanitize(marked.parse(src)));
     } catch {}
   }
   return esc(src);
@@ -452,7 +608,14 @@ function ensureKindBubble(messageID, kind) {
     wrap.className = 'flex justify-start';
     wrap.innerHTML = subtle
       ? `<div class="max-w-[85%]" data-content></div>`
-      : `<div class="max-w-[85%] bg-neutral-900 border border-neutral-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm space-y-2" data-content></div>`;
+      : `<div class="max-w-[85%] group">
+           <div class="bg-neutral-900 border border-neutral-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
+             <div data-content class="space-y-2"></div>
+           </div>
+           <div class="flex mt-0.5">
+             <button class="msg-actions text-neutral-500 hover:text-neutral-200 text-xs leading-none px-1 py-0.5 rounded" data-copy="message" title="Скопировать">⧉</button>
+           </div>
+         </div>`;
     el.appendChild(wrap);
   }
   return wrap;
@@ -557,6 +720,26 @@ function reasonCard(part) {
   </details>`;
 }
 
+function filePutPreviewCard(tool, state) {
+  if (state.status !== 'completed') return '';
+  let out = state.output;
+  if (typeof out === 'string') {
+    try { out = JSON.parse(out); } catch { return ''; }
+  }
+  if (!out || typeof out !== 'object' || !out.url || !out.path) return '';
+  if (!/\.(html?|xhtml?|htm)$/i.test(out.path)) return '';
+  return `
+    <div class="file-preview-card group mt-1.5 flex items-center gap-3 rounded-lg border border-neutral-700/70 bg-neutral-900/60 px-3 py-2 cursor-pointer hover:border-sky-600 transition-colors"
+         data-file-preview data-url="${esc(out.url)}" data-name="${esc(out.path)}" data-size="${out.size ?? ''}" data-type="text/html">
+      <span class="text-lg shrink-0">🖥️</span>
+      <span class="min-w-0 flex-1">
+        <span class="mono text-xs text-sky-300 truncate block">${esc(out.path)}</span>
+        <span class="text-[10px] text-neutral-500">HTML · ${out.size ? fmtSize(out.size) : 'предпросмотр'}</span>
+      </span>
+      <span class="shrink-0 px-2.5 py-1 rounded-md bg-sky-600 group-hover:bg-sky-500 text-xs font-medium">Предпросмотр</span>
+    </div>`;
+}
+
 function toolCard(part) {
   const tool = part.tool || 'tool';
   const state = part.state || {};
@@ -568,7 +751,8 @@ function toolCard(part) {
   const output = state.output !== undefined ? state.output : null;
   const title = state.title || null;
   const stCls = state.status === 'completed' ? 'text-emerald-400' : state.status === 'error' ? 'text-red-400' : 'text-neutral-500';
-  return `<details class="compact-card tool-card border border-neutral-800/70 rounded-md px-1.5 py-0.5 text-[11px] bg-neutral-900/40">
+  const previewCard = /(_file_put|_upload_file)$/.test(tool) ? filePutPreviewCard(tool, state) : '';
+  return `<div>${previewCard}<details class="compact-card tool-card border border-neutral-800/70 rounded-md px-1.5 py-0.5 text-[11px] bg-neutral-900/40">
     <summary>
       <span class="chev text-neutral-600 text-[9px]">▸</span>
       <span class="mono text-sky-400 shrink-0">${esc(tool)}</span>
@@ -576,7 +760,7 @@ function toolCard(part) {
       ${title ? `<span class="text-neutral-600 truncate">${esc(title)}</span>` : ''}
     </summary>
     <pre class="mt-0.5 pt-0.5 border-t border-neutral-800/60 mono text-[10px] text-neutral-400 max-h-40 overflow-y-auto">${esc(JSON.stringify(input, null, 2))}${output !== null ? '\n\n→ ' + esc(typeof output === 'string' ? output : JSON.stringify(output, null, 2)) : ''}</pre>
-  </details>`;
+  </details></div>`;
 }
 
 function renderTodos(todos) {
@@ -905,13 +1089,32 @@ function setupChatActions() {
   const el = $('#chat-messages');
   if (!el) return;
   el.onclick = async (e) => {
-    const btn = e.target.closest('[data-copy="reason"]');
+    const card = e.target.closest('[data-file-preview]');
+    if (card) {
+      e.preventDefault();
+      e.stopPropagation();
+      openFilePreview({
+        name: card.dataset.name,
+        url: card.dataset.url,
+        size: +card.dataset.size || 0,
+        content_type: card.dataset.type || 'text/html',
+      });
+      return;
+    }
+    const btn = e.target.closest('[data-copy]');
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
-    const details = btn.closest('details');
-    const src = details ? $('[data-reason-text]', details) : null;
-    const text = src ? src.textContent : '';
+    let text = '';
+    if (btn.dataset.copy === 'reason') {
+      const details = btn.closest('details');
+      const src = details ? $('[data-reason-text]', details) : null;
+      text = src ? src.textContent : '';
+    } else if (btn.dataset.copy === 'message') {
+      const wrap = btn.closest('[data-msg]');
+      const parts = wrap ? $$('[data-p]', wrap) : [];
+      text = parts.map(p => p.dataset.raw || p.textContent).filter(Boolean).join('\n\n');
+    }
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -1472,16 +1675,33 @@ async function renderProviders() {
         </div>
         <button id="new-provider" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Добавить провайдера</button>
       </div>
-      <div class="flex-1 overflow-y-auto p-6" id="providers-list"></div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div id="providers-added"></div>
+        <div class="mt-6 border-t border-neutral-800 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-semibold">Каталог opencode — все доступные провайдеры</div>
+            <div class="flex items-center gap-2">
+              <span id="provider-catalog-meta" class="text-xs text-neutral-500"></span>
+              <button id="provider-catalog-refresh" class="px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">обновить</button>
+            </div>
+          </div>
+          <input id="provider-catalog-search" placeholder="Поиск по id или названию…" class="mb-3 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-600">
+          <div id="provider-catalog-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2"></div>
+        </div>
+      </div>
     </div>`;
   $('#new-provider').onclick = () => providerModal();
+  $('#provider-catalog-refresh').onclick = () => refreshProviderCatalog(true);
+  $('#provider-catalog-search').oninput = renderProviderCatalog;
   await refreshProviders();
+  await refreshProviderCatalog();
 }
 
 async function refreshProviders() {
   let data;
   try { data = await api.get('/api/providers' + projQuery()); } catch (e) { return; }
-  const el = $('#providers-list');
+  window._addedProviderIds = data.map(p => p.id);
+  const el = $('#providers-added');
   if (!el) return;
   if (!data.length) {
     el.innerHTML = `<div class="text-neutral-500 text-sm">Провайдеров нет. Добавьте ключ — без него модели провайдера недоступны воркерам.<br>Ключи также можно оставлять в env брокера (DEEPSEEK_API_KEY и т.п.) — это резервный путь.</div>`;
@@ -1545,23 +1765,75 @@ async function refreshProviders() {
     await api.del(`/api/providers/${b.dataset.id}`);
     await refreshProviders();
   });
+  if ($('#provider-catalog-list')) renderProviderCatalog();
 }
 
-function providerModal(p) {
-  const isEdit = !!p;
-  const known = api.get('/api/providers/known').then(k => k).catch(() => []);
+/* ---------- каталог провайдеров opencode ---------- */
+let providerCatalog = [];
+let providerCatalogLoaded = false;
+
+async function refreshProviderCatalog(forceRefresh) {
+  const el = $('#provider-catalog-list');
+  if (!el) return;
+  if (!forceRefresh && providerCatalogLoaded) { renderProviderCatalog(); return; }
+  el.innerHTML = `<div class="col-span-full text-neutral-500 text-sm">Загружаем каталог opencode… (первый раз поднимается probe-контейнер, может занять до минуты)</div>`;
+  $('#provider-catalog-meta').textContent = '';
+  try {
+    const cat = await api.get('/api/providers/available' + (forceRefresh ? '?refresh=1' : ''));
+    providerCatalog = cat.providers || [];
+    providerCatalogLoaded = true;
+    $('#provider-catalog-meta').textContent = `${cat.count} провайдеров · opencode ${esc(cat.version)} · ${esc(cat.fetched_at)}${cat.stale ? ' · кэш устарел' : ''}`;
+  } catch (e) {
+    el.innerHTML = `<div class="col-span-full text-red-400 text-sm">Не удалось загрузить каталог: ${esc(e.message)}</div>`;
+    return;
+  }
+  renderProviderCatalog();
+}
+
+function renderProviderCatalog() {
+  const el = $('#provider-catalog-list');
+  if (!el || !providerCatalogLoaded) return;
+  const q = ($('#provider-catalog-search')?.value || '').trim().toLowerCase();
+  const added = new Set(window._addedProviderIds || []);
+  const items = providerCatalog.filter(p =>
+    !q || (p.id || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
+  el.innerHTML = items.length
+    ? items.map(p => `
+      <div class="rounded-lg border border-neutral-800 hover:border-neutral-700 px-3 py-2">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="mono text-sky-300 text-xs truncate">${esc(p.id)}</div>
+            <div class="text-xs text-neutral-400 truncate">${esc(p.name || '')}</div>
+          </div>
+          ${added.has(p.id)
+            ? '<span class="text-[11px] px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-400 shrink-0">добавлен</span>'
+            : `<button class="catalog-add px-2.5 py-1 rounded-lg border border-sky-800 text-sky-300 hover:bg-sky-950 text-[11px] shrink-0" data-id="${esc(p.id)}" data-name="${esc(p.name || '')}">добавить</button>`}
+        </div>
+        <div class="text-[11px] text-neutral-500 mt-1 truncate">моделей: ${p.models.length}${p.default_model ? ` · default: ${esc(p.default_model)}` : ''}</div>
+      </div>`).join('')
+    : '<div class="col-span-full text-neutral-500 text-sm">Ничего не найдено.</div>';
+  $$('.catalog-add', el).forEach(b => b.onclick = () => providerModal(null, { id: b.dataset.id, label: b.dataset.name }));
+}
+
+function providerModal(p, prefill) {
+  const isEdit = !!(p && p.env_var !== undefined);
+  const pid = p ? p.id : (prefill ? prefill.id : '');
+  const label = p ? p.label : (prefill ? prefill.label : '');
+  const known = api.get('/api/providers/available')
+    .then(c => (c.providers || []).map(x => ({ id: x.id, name: x.name })))
+    .catch(() => api.get('/api/providers/known').then(ids => ids.map(id => ({ id }))).catch(() => []));
   Promise.all([known, currentProject ? Promise.resolve([]) : api.get('/api/projects').catch(() => [])]).then(([list, projects]) => {
     const projSel = currentProject
       ? ''
-      : formSelect('Проект', 'project_id', projects.map(x => ({ v: x.id, l: x.name })), p ? p.project_id : (projects[0] || {}).id);
+      : formSelect('Проект', 'project_id', projects.map(x => ({ v: x.id, l: x.name })), isEdit ? p.project_id : (projects[0] || {}).id);
     const body = `
-      ${isEdit ? '' : formInput('ID провайдера', 'id', p ? p.id : '', 'deepseek', 'text', 'list="provider-ids"')}
-      <datalist id="provider-ids">${list.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
-      ${formInput('Название (необязательно)', 'label', p ? p.label : '')}
+      ${isEdit ? '' : formInput('ID провайдера', 'id', pid, 'deepseek', 'text', 'list="provider-ids"')}
+      <datalist id="provider-ids">${list.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</datalist>
+      ${formInput('Название (необязательно)', 'label', label)}
       ${projSel}
       ${formInput('API-ключ', 'api_key', '', isEdit ? 'оставьте пустым, чтобы не менять' : 'sk-…', 'password')}
       <label class="flex items-center gap-2 text-sm mb-3">
-        <input type="checkbox" name="enabled" ${p ? (p.enabled ? 'checked' : '') : 'checked'} class="accent-sky-600">
+        <input type="checkbox" name="enabled" ${isEdit ? (p.enabled ? 'checked' : '') : 'checked'} class="accent-sky-600">
         <span class="text-neutral-400 text-xs">включено (ключ попадает в воркеры)</span>
       </label>
       ${isEdit ? `<div class="text-xs text-neutral-500 mb-2">Текущий ключ: ${p.has_key ? esc(p.key_masked) : 'нет'}</div>` : ''}`;
@@ -1580,6 +1852,226 @@ function providerModal(p) {
   });
 }
 
+/* ---------- files ---------- */
+let filesPrefix = '';
+
+function fmtSize(n) {
+  if (n == null) return '';
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+  return `${(n / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function filesBreadcrumbs() {
+  const el = $('#files-breadcrumbs');
+  if (!el) return;
+  const parts = filesPrefix ? filesPrefix.split('/') : [];
+  const crumbs = [`<button class="crumb px-1.5 py-0.5 rounded hover:bg-neutral-800 mono text-xs ${parts.length === 0 ? 'text-sky-300' : 'text-neutral-400'}" data-path="">Файлы</button>`];
+  let acc = '';
+  parts.forEach((p, i) => {
+    acc = acc ? `${acc}/${p}` : p;
+    crumbs.push('<span class="text-neutral-600 text-xs">/</span>');
+    crumbs.push(`<button class="crumb px-1.5 py-0.5 rounded hover:bg-neutral-800 mono text-xs ${i === parts.length - 1 ? 'text-sky-300' : 'text-neutral-400'}" data-path="${esc(acc)}">${esc(p)}</button>`);
+  });
+  el.innerHTML = crumbs.join('');
+  $$('.crumb', el).forEach(b => b.onclick = () => { filesPrefix = b.dataset.path || ''; syncFilesFolderInput(); refreshFiles(); });
+}
+
+function syncFilesFolderInput() {
+  const input = $('#files-folder');
+  if (input) input.value = filesPrefix;
+}
+
+async function renderFiles() {
+  const main = $('#main');
+  main.innerHTML = `
+    <div class="h-full flex flex-col">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+        <div>
+          <div class="text-lg font-semibold">Файлы проекта</div>
+          <div class="text-xs text-neutral-500">Хранилище MinIO: файлы и скриншоты проекта. Скриншоты загружает агент через MCP «files».</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <input id="files-folder" placeholder="папка (необязательно)" class="w-40 bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-sky-600">
+          <button id="files-upload" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Загрузить</button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div id="files-breadcrumbs" class="flex items-center flex-wrap gap-0.5 mb-3"></div>
+        <div id="files-list"></div>
+      </div>
+    </div>`;
+  $('#files-upload').onclick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.onchange = () => {
+      if (input.files[0]) uploadProjectFile(input.files[0], $('#files-folder').value);
+    };
+    input.click();
+  };
+  syncFilesFolderInput();
+  filesBreadcrumbs();
+  await refreshFiles();
+}
+
+async function uploadProjectFile(file, folder) {
+  if (!currentProject) return toast('Сначала выберите проект', 'error');
+  const fd = new FormData();
+  fd.append('file', file);
+  if ((folder || '').trim()) fd.append('folder', folder.trim());
+  try {
+    const r = await fetch(`/api/files?project_id=${currentProject}`, { method: 'POST', body: fd });
+    if (r.status === 401) { location.href = '/login'; throw new Error('Не авторизован'); }
+    if (!r.ok) {
+      let detail = r.statusText;
+      try { detail = (await r.json()).detail || detail; } catch {}
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+    toast(`Файл ${file.name} загружен`, 'ok');
+    await refreshFiles();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function closeFilePreview() {
+  const r = $('#file-preview-root');
+  if (r) r.remove();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeFilePreview();
+});
+
+function openFilePreview(f) {
+  const abs = new URL(f.url, window.location.origin).toString();
+  const isImage = (f.content_type || '').startsWith('image/');
+  const isHtml = (f.content_type || '').includes('text/html') || /\.(html?|xhtml?|htm)$/i.test(f.name);
+  closeFilePreview();
+  const root = document.createElement('div');
+  root.id = 'file-preview-root';
+  root.innerHTML = `
+    <div class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6" id="file-preview-overlay">
+      <div class="w-full max-w-4xl bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800 gap-3">
+          <div class="mono text-sm text-sky-300 truncate">${esc(f.name)}</div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-xs text-neutral-500">${f.size ? fmtSize(f.size) : ''}</span>
+            <a href="${esc(abs)}" target="_blank" rel="noopener" class="px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">открыть в новой вкладке</a>
+            <button class="pv-copy px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">копировать ссылку</button>
+            <button class="pv-dl px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">скачать</button>
+            <button id="file-preview-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none px-1">&times;</button>
+          </div>
+        </div>
+        <div class="flex-1 overflow-auto p-4 flex items-center justify-center">
+          ${isImage
+            ? `<img src="${esc(abs)}" class="max-w-full max-h-[75vh] object-contain rounded-lg">`
+            : isHtml
+              ? `<iframe src="${esc(abs)}" sandbox="allow-scripts allow-forms allow-modals allow-popups" class="w-full h-[75vh] bg-white rounded-lg border border-neutral-800"></iframe>`
+              : `<div class="text-center py-10">
+                   <div class="text-4xl mb-3">📄</div>
+                   <div class="text-sm text-neutral-400">Предпросмотр недоступен для этого типа файла</div>
+                   <div class="text-xs text-neutral-600 mt-1">${esc(f.content_type || '')}</div>
+                 </div>`}
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  $('#file-preview-overlay').onclick = (e) => { if (e.target.id === 'file-preview-overlay') closeFilePreview(); };
+  $('#file-preview-close').onclick = closeFilePreview;
+  $('.pv-copy', root).onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(abs);
+      toast('Ссылка скопирована', 'ok');
+    } catch {
+      toast('Не удалось скопировать', 'error');
+    }
+  };
+  $('.pv-dl', root).onclick = () => {
+    const a = document.createElement('a');
+    a.href = abs + (abs.includes('?') ? '&' : '?') + 'download=1';
+    a.download = f.name.split('/').pop();
+    a.click();
+  };
+}
+
+async function refreshFiles() {
+  const el = $('#files-list');
+  if (!el) return;
+  if (!currentProject) {
+    el.innerHTML = `<div class="text-neutral-500 text-sm">Выберите проект в левом верхнем углу — файлы хранятся отдельно для каждого проекта.</div>`;
+    return;
+  }
+  let data;
+  try { data = await api.get(`/api/files?project_id=${currentProject}&prefix=${encodeURIComponent(filesPrefix)}`); } catch (e) { return; }
+  if (!data.storage_ok) {
+    el.innerHTML = `
+      <div class="rounded-xl border border-yellow-900 p-5 mb-4">
+        <div class="font-semibold text-yellow-400">Хранилище MinIO недоступно</div>
+        <div class="text-xs text-neutral-500 mt-1">Поднимите MinIO: <span class="mono">docker compose up -d minio</span> (или задайте VIBEPROD_S3_* и перезапустите брокер), затем обновите страницу.</div>
+      </div>`;
+    return;
+  }
+  const files = data.files || [];
+  const folders = data.folders || [];
+  if (!files.length && !folders.length) {
+    el.innerHTML = `<div class="text-neutral-500 text-sm">${filesPrefix ? `Папка «${esc(filesPrefix)}» пуста.` : 'Файлов пока нет. Загрузите первый — или подключите агенту MCP «files» и скилл «screenshot-to-files», чтобы агент складывал сюда скриншоты.'}</div>`;
+    return;
+  }
+  const folderHtml = folders.length ? `<div class="text-[10px] uppercase tracking-wider text-neutral-600 px-2 mb-1">Папки</div>` + folders.map(d => `
+    <button class="folder w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-800/60 text-left" data-path="${esc(d.path)}">
+      <span class="text-xs w-4 text-center shrink-0">📁</span>
+      <span class="mono text-xs text-sky-300 truncate flex-1">${esc(d.name)}</span>
+      <span class="text-neutral-600 text-[10px] shrink-0">▸</span>
+    </button>`).join('') : '';
+  const fileHtml = files.length ? (folders.length ? `<div class="text-[10px] uppercase tracking-wider text-neutral-600 px-2 mb-1 mt-2">Файлы</div>` : '') + files.map(f => {
+    const isImage = (f.content_type || '').startsWith('image/');
+    const abs = new URL(f.url, window.location.origin).toString();
+    return `
+      <div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-neutral-800/60 group">
+        ${isImage
+          ? `<button class="preview shrink-0 cursor-pointer" data-name="${esc(f.name)}"><img src="${esc(abs)}" class="w-5 h-5 object-cover rounded border border-neutral-700" loading="lazy"></button>`
+          : `<button class="preview w-5 h-5 shrink-0 cursor-pointer rounded border border-neutral-700 bg-neutral-900 flex items-center justify-center text-neutral-500 text-[7px] mono" data-name="${esc(f.name)}">${esc((f.name.split('.').pop() || 'file').slice(0, 4))}</button>`}
+        <button class="preview text-left cursor-pointer min-w-0 flex-1" data-name="${esc(f.name)}" title="${esc(f.name)}">
+          <span class="mono text-xs text-sky-300 truncate hover:underline block">${esc(f.name)}</span>
+        </button>
+        <span class="text-[10px] text-neutral-500 shrink-0" title="${f.last_modified ? esc(f.last_modified) : ''}">${fmtSize(f.size)}</span>
+        <button class="preview msg-actions text-neutral-500 hover:text-neutral-200 text-xs leading-none px-1 shrink-0" data-name="${esc(f.name)}" title="Открыть">⤢</button>
+        <button class="copy msg-actions text-neutral-500 hover:text-neutral-200 text-xs leading-none px-1 shrink-0" data-url="${esc(abs)}" title="Скопировать ссылку">⧉</button>
+        <button class="del msg-actions text-neutral-500 hover:text-red-400 text-xs leading-none px-1 shrink-0" data-name="${esc(f.name)}" title="Удалить">✕</button>
+      </div>`;
+  }).join('') : '';
+  el.innerHTML = folderHtml + fileHtml;
+  $$('.folder', el).forEach(b => b.onclick = () => {
+    filesPrefix = b.dataset.path || '';
+    syncFilesFolderInput();
+    filesBreadcrumbs();
+    refreshFiles();
+  });
+  $$('.preview', el).forEach(b => b.onclick = () => {
+    const row = files.find(f => f.name === b.dataset.name);
+    if (row) openFilePreview(row);
+  });
+  $$('.copy', el).forEach(b => b.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(b.dataset.url);
+      toast('Ссылка скопирована', 'ok');
+    } catch {
+      toast('Не удалось скопировать', 'error');
+    }
+  });
+  $$('.del', el).forEach(b => b.onclick = async () => {
+    if (!confirm(`Удалить ${b.dataset.name}?`)) return;
+    try {
+      await api.del(`/api/files?project_id=${currentProject}&path=${encodeURIComponent(b.dataset.name)}`);
+      toast('Файл удалён', 'ok');
+      await refreshFiles();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  });
+}
+
 /* ---------- automation ---------- */
 async function renderAutomation(tab = 'webhooks') {
   const main = $('#main');
@@ -1589,18 +2081,22 @@ async function renderAutomation(tab = 'webhooks') {
         <div class="text-lg font-semibold mb-3">Автоматизация</div>
         <div class="flex gap-2 text-sm">
           <button id="auto-tab-webhooks" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'webhooks' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">Webhook-и</button>
+          <button id="auto-tab-out" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'outwebhooks' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">Исходящие</button>
           <button id="auto-tab-schedules" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'schedules' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">Расписания</button>
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="automation-content"></div>
     </div>`;
   $('#auto-tab-webhooks').onclick = () => showView('webhooks');
+  $('#auto-tab-out').onclick = () => showView('outwebhooks');
   $('#auto-tab-schedules').onclick = () => showView('schedules');
   const content = $('#automation-content');
   if (tab === 'schedules') {
     content.innerHTML = schedulesTabHtml();
     bindNewSched();
     await refreshSchedules();
+  } else if (tab === 'outwebhooks') {
+    await refreshOutWebhooks(content);
   } else {
     await refreshWebhooks(content);
   }
@@ -1955,6 +2451,183 @@ async function webhookModal(w) {
     });
 }
 
+/* ---------- out webhooks ---------- */
+const OUT_EVENT_LABELS = {
+  'session.created': 'сессия создана',
+  'session.started': 'сессия запущена',
+  'session.completed': 'сессия завершена',
+  'session.failed': 'сессия упала',
+  'session.expired': 'сессия истекла (TTL)',
+  'schedule.fired': 'сработало расписание',
+  'webhook.received': 'получен входящий webhook',
+  'webhook.test': 'тест',
+};
+
+const DELIVERY_META = {
+  pending: { label: 'в очереди', cls: 'bg-neutral-700' },
+  retrying: { label: 'ретрай', cls: 'bg-yellow-700 animate-pulse' },
+  success: { label: 'доставлено', cls: 'bg-emerald-700' },
+  failed: { label: 'ошибка', cls: 'bg-red-700' },
+};
+function deliveryBadge(status) {
+  const m = DELIVERY_META[status] || DELIVERY_META.pending;
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${m.cls}">${m.label}</span>`;
+}
+
+async function refreshOutWebhooks(content) {
+  let data;
+  try { data = await api.get('/api/out-webhooks' + projQuery()); } catch (e) { return; }
+  content.innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-xs text-neutral-500 max-w-lg">Исходящий webhook — брокер сам шлёт POST-уведомления о событиях (запуск и завершение сессий, срабатывание расписаний) на ваш URL. Тело: {"event", "timestamp", "data"}. При заданном секрете каждый запрос подписан: X-Vibeprod-Signature (HMAC-SHA256).</div>
+      <button id="new-out" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">Новый webhook</button>
+    </div>
+    <div id="out-list"></div>`;
+  $('#new-out').onclick = () => outWebhookModal();
+  const list = $('#out-list');
+  if (!data.length) {
+    list.innerHTML = `<div class="text-neutral-500 text-sm">Исходящих webhook-ов нет. Создайте — и внешние системы будут получать события брокера.</div>`;
+    return;
+  }
+  list.innerHTML = data.map(w => `
+    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-5 mb-3">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <div class="font-semibold flex items-center gap-2 flex-wrap">
+            <span>${esc(w.name || w.url)}</span>
+            ${w.enabled ? '<span class="text-xs px-2 py-0.5 rounded bg-emerald-900/50">вкл</span>' : '<span class="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-500">выкл</span>'}
+            ${w.has_secret ? '<span class="text-xs px-2 py-0.5 rounded bg-yellow-900/50">с подписью</span>' : ''}
+          </div>
+          <div class="mono text-xs text-neutral-500 mt-1 break-all">${esc(w.url)}</div>
+        </div>
+        <div class="flex gap-2 text-xs shrink-0 ml-3">
+          <button class="test px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">тест</button>
+          <button class="log px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">журнал</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">изменить</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${w.id}">удалить</button>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-3 text-xs">
+        ${(w.events || []).map(e => `<span class="px-2 py-1 rounded bg-neutral-800">${esc(OUT_EVENT_LABELS[e] || e)}</span>`).join('')}
+        ${w.last_delivery_at ? `<span class="px-2 py-1 rounded bg-neutral-800">доставка: ${esc(w.last_delivery_at)}</span>` : ''}
+        ${w.last_delivery_status ? deliveryBadge(w.last_delivery_status) : ''}
+      </div>
+    </div>`).join('');
+  $$('.test', list).forEach(b => b.onclick = async () => {
+    try {
+      const r = await api.post(`/api/out-webhooks/${b.dataset.id}/test`);
+      toast(r.ok ? `Доставлено (HTTP ${r.delivery.http_status})` : `Ошибка доставки: ${r.delivery.error || 'HTTP ' + r.delivery.http_status}`, r.ok ? 'ok' : 'error');
+    } catch (e) { toast(e.message, 'error'); }
+    await refreshOutWebhooks($('#automation-content'));
+  });
+  $$('.log', list).forEach(b => b.onclick = () => {
+    const row = data.find(w => w.id === +b.dataset.id);
+    outDeliveriesModal(row);
+  });
+  $$('.edit', list).forEach(b => b.onclick = () => {
+    const row = data.find(w => w.id === +b.dataset.id);
+    outWebhookModal(row);
+  });
+  $$('.del', list).forEach(b => b.onclick = async () => {
+    if (!confirm('Удалить исходящий webhook?')) return;
+    await api.del(`/api/out-webhooks/${b.dataset.id}`);
+    await refreshOutWebhooks($('#automation-content'));
+  });
+}
+
+async function outWebhookModal(w) {
+  const isEdit = !!w;
+  w = w || { name: '', url: '', events: ['session.completed', 'session.failed'], secret: '', enabled: true };
+  const projects = currentProject ? [] : await api.get('/api/projects').catch(() => []);
+  const projSel = currentProject
+    ? ''
+    : formSelect('Проект', 'project_id', projects.map(x => ({ v: x.id, l: x.name })), isEdit ? w.project_id : (projects[0] || {}).id);
+  const eventBoxes = Object.entries(OUT_EVENT_LABELS).filter(([v]) => v !== 'webhook.test').map(([v, l]) => `
+    <label class="flex items-center gap-1.5 text-xs">
+      <input type="checkbox" class="evcb accent-sky-600" data-ev="${v}" ${(w.events || []).includes(v) ? 'checked' : ''}>
+      <span class="text-neutral-400">${l}</span>
+    </label>`).join('');
+  openModal(isEdit ? `Исходящий webhook: ${w.name || w.url}` : 'Новый исходящий webhook', `
+    ${formInput('Название (необязательно)', 'name', w.name, 'Мой сервис')}
+    ${formInput('URL', 'url', w.url, 'https://example.com/hooks/vibeprod')}
+    ${projSel}
+    <div class="text-xs text-neutral-400 mb-2">События:</div>
+    <div class="grid grid-cols-2 gap-1.5 mb-3">${eventBoxes}</div>
+    <div class="grid grid-cols-2 gap-3">
+      ${formInput('Секрет подписи (необязательно)', 'secret', '', isEdit ? 'оставьте пустым, чтобы не менять' : '', 'password')}
+      <label class="flex items-center gap-2 text-sm mb-3 mt-5">
+        <input type="checkbox" name="enabled" ${w.enabled ? 'checked' : ''} class="accent-sky-600">
+        <span class="text-neutral-400 text-xs">включено</span>
+      </label>
+    </div>
+    ${isEdit ? `<div class="text-xs text-neutral-500 mb-2">Секрет: ${w.has_secret ? 'задан' : 'нет'}</div>` : ''}`,
+    async (close) => {
+      const f = readForm($('#modal-body'));
+      if (!f.url.trim()) throw new Error('URL обязателен');
+      f.events = $$('.evcb', $('#modal-body')).filter(c => c.checked).map(c => c.dataset.ev);
+      if (!f.events.length) throw new Error('Выберите хотя бы одно событие');
+      f.enabled = $('[name="enabled"]', $('#modal-body')).checked;
+      if (currentProject) f.project_id = currentProject;
+      if (isEdit) await api.put(`/api/out-webhooks/${w.id}`, f);
+      else await api.post('/api/out-webhooks', f);
+      close();
+      const content = $('#automation-content');
+      if (content) await refreshOutWebhooks(content);
+    });
+}
+
+async function outDeliveriesModal(w) {
+  const root = $('#modal-root');
+  root.innerHTML = `
+    <div class="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4" id="modal-overlay">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
+          <div class="font-semibold truncate">Журнал доставок: ${esc(w.name || w.url)}</div>
+          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">&times;</button>
+        </div>
+        <div class="p-5 overflow-y-auto" id="deliveries-body"><div class="text-neutral-500 text-sm">загрузка…</div></div>
+        <div class="px-5 py-3 border-t border-neutral-800 flex justify-end gap-2">
+          <button id="deliveries-refresh" class="px-4 py-2 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm">Обновить</button>
+          <button id="deliveries-close" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Закрыть</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => root.innerHTML = '';
+  $('#deliveries-close').onclick = close;
+  $('#modal-close').onclick = close;
+  $('#modal-overlay').onclick = (e) => { if (e.target.id === 'modal-overlay') close(); };
+  const load = async () => {
+    let rows;
+    try { rows = await api.get(`/api/out-webhooks/${w.id}/deliveries`); } catch (e) { toast(e.message, 'error'); return; }
+    const body = $('#deliveries-body');
+    if (!body) return;
+    if (!rows.length) { body.innerHTML = '<div class="text-neutral-500 text-sm">Доставок ещё не было.</div>'; return; }
+    body.innerHTML = rows.map(d => `
+      <div class="rounded-lg border border-neutral-800 p-3 mb-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="text-sm flex items-center gap-2 flex-wrap">
+            <span class="mono text-sky-300 text-xs">${esc(d.event)}</span>
+            ${deliveryBadge(d.status)}
+            ${d.http_status ? `<span class="text-xs text-neutral-500">HTTP ${d.http_status}</span>` : ''}
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-neutral-500">${esc(d.started_at || '')}${d.attempts ? ` · попыток: ${d.attempts}` : ''}</span>
+            ${d.status === 'failed' ? `<button class="retry px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${d.id}">повторить</button>` : ''}
+          </div>
+        </div>
+        ${d.error ? `<div class="text-xs text-red-400 mt-1 break-all">${esc(d.error)}</div>` : ''}
+        ${d.payload && d.payload.data && d.payload.data.title ? `<div class="text-xs text-neutral-500 mt-1 truncate">${esc(String(d.payload.data.title))}</div>` : ''}
+      </div>`).join('');
+    $$('.retry', body).forEach(b => b.onclick = async () => {
+      await api.post(`/api/out-webhooks/${w.id}/deliveries/${b.dataset.id}/retry`);
+      toast('Повторная доставка запущена', 'ok');
+      setTimeout(load, 1500);
+    });
+  };
+  $('#deliveries-refresh').onclick = load;
+  await load();
+}
+
 /* ---------- channels ---------- */
 async function renderChannels(arg) {
   if (arg) return renderChannelConfig(arg);
@@ -2019,11 +2692,16 @@ async function renderChannelConfig(channelId) {
           : '<span class="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-500">не настроен</span>'}
       </div>
       <div class="flex-1 overflow-y-auto p-6 max-w-2xl">
-        <div class="text-sm text-neutral-400 mb-4">Токен бота выдаёт @BotFather (/newbot). Первое сообщение в чате запускает агента по умолчанию проекта, дальше переписка продолжает ту же сессию. Команды бота: /agents, /agent N, /new, /abort, /status, /link.</div>
+        <div class="text-sm text-neutral-400 mb-4">Токен бота выдаёт @BotFather (/newbot). Первое сообщение в чате запускает агента по умолчанию проекта, дальше переписка продолжает ту же сессию. Команды бота: /agents, /agent N, /new, /abort, /status, /link, /chatid.</div>
         ${formInput('Токен бота', 'token', '', cfg.has_token ? 'оставьте пустым, чтобы не менять' : '123456:ABC…', 'password')}
         ${cfg.has_token ? `<div class="text-xs text-neutral-500 mb-3">Токен задан (…${esc(cfg.token_tail || '')}).</div>` : ''}
         ${formInput('Разрешённые user id (необязательно, через запятую)', 'allowed_users', cfg.allowed_users || '', '111,222')}
         ${formInput('URL веб-интерфейса для команды /link (необязательно)', 'web_url', cfg.web_url || '', 'http://host:8000')}
+        ${formInput('Чат для уведомлений о фоновых запусках (необязательно, id сообщит бот: /chatid)', 'notify_chat_id', cfg.notify_chat_id || '', '123456789')}
+        ${formSelect('Уведомления о запусках по расписанию и вебхукам', 'notify_mode', [
+          { v: 'all', l: 'Всегда' },
+          { v: 'errors', l: 'Только при ошибке' },
+        ], cfg.notify_mode || 'all')}
         <label class="flex items-center gap-2 text-sm mb-4">
           <input type="checkbox" name="enabled" ${cfg.enabled ? 'checked' : ''} class="accent-sky-600">
           <span class="text-neutral-400 text-xs">включено</span>

@@ -63,16 +63,24 @@ def save_config(payload: dict, project_id: int = None):
             raise HTTPException(400, "токен бота обязателен")
     allowed_users = (payload.get("allowed_users") or "").strip()
     web_url = (payload.get("web_url") or "").strip()
+    notify_chat_id = (payload.get("notify_chat_id") or "").strip()
+    if notify_chat_id and not re.fullmatch(r"-?\d+", notify_chat_id):
+        raise HTTPException(400, "notify_chat_id должен быть числом (узнать id: команда /chatid боту)")
+    notify_mode = (payload.get("notify_mode") or "all").strip()
+    if notify_mode not in ("all", "errors"):
+        raise HTTPException(400, "notify_mode: 'all' или 'errors'")
     enabled = 1 if payload.get("enabled", True) else 0
     if existing:
         db.execute(
-            "UPDATE telegram_config SET token=?, allowed_users=?, web_url=?, enabled=?, updated_at=datetime('now') WHERE project_id=?",
-            (token, allowed_users, web_url, enabled, pid),
+            "UPDATE telegram_config SET token=?, allowed_users=?, web_url=?, notify_chat_id=?, notify_mode=?, "
+            "enabled=?, updated_at=datetime('now') WHERE project_id=?",
+            (token, allowed_users, web_url, notify_chat_id, notify_mode, enabled, pid),
         )
     else:
         db.execute(
-            "INSERT INTO telegram_config(project_id, token, allowed_users, web_url, enabled) VALUES(?,?,?,?,?)",
-            (pid, token, allowed_users, web_url, enabled),
+            "INSERT INTO telegram_config(project_id, token, allowed_users, web_url, notify_chat_id, notify_mode, enabled) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (pid, token, allowed_users, web_url, notify_chat_id, notify_mode, enabled),
         )
     _schedule_apply()
     return _dict(db.query_one("SELECT * FROM telegram_config WHERE project_id=?", (pid,)))

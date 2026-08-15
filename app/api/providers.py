@@ -4,7 +4,13 @@ import re
 from fastapi import APIRouter, HTTPException
 
 from .. import db
-from ..provider_check import KNOWN_PROVIDER_IDS, check_provider, env_var_for
+from ..provider_check import (
+    KNOWN_PROVIDER_IDS,
+    check_provider,
+    env_var_for,
+    fetch_available_providers,
+    load_catalog_from_disk,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -58,7 +64,24 @@ def list_providers(project_id: int = None):
 
 @router.get("/providers/known")
 def known_providers():
+    catalog = load_catalog_from_disk()
+    if catalog:
+        ids = [p["id"] for p in catalog.get("providers", []) if p.get("id")]
+        if ids:
+            return ids
     return KNOWN_PROVIDER_IDS
+
+
+@router.get("/providers/available")
+def available_providers(refresh: bool = False):
+    """Каталог всех провайдеров, известных opencode (кэш сутки, refresh=true перечитывает).
+
+    Первый вызов поднимает probe-контейнер и может занять до минуты.
+    """
+    try:
+        return fetch_available_providers(force=refresh)
+    except Exception as exc:
+        raise HTTPException(502, f"не удалось получить каталог провайдеров: {str(exc)[:500]}")
 
 
 @router.post("/providers")

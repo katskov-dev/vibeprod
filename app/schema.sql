@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
+  file_token TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -168,11 +169,40 @@ CREATE TABLE IF NOT EXISTS telegram_chats (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS out_webhooks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT DEFAULT '',
+  url TEXT NOT NULL,
+  events TEXT NOT NULL DEFAULT '["session.completed","session.failed"]',
+  secret TEXT DEFAULT '',
+  enabled INTEGER DEFAULT 1,
+  last_delivery_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS out_webhook_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  webhook_id INTEGER NOT NULL REFERENCES out_webhooks(id) ON DELETE CASCADE,
+  event TEXT NOT NULL,
+  payload TEXT,
+  status TEXT DEFAULT 'pending',
+  http_status INTEGER,
+  attempts INTEGER DEFAULT 0,
+  error TEXT,
+  started_at TEXT,
+  finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_out_deliveries_webhook ON out_webhook_deliveries(webhook_id);
+
 CREATE TABLE IF NOT EXISTS telegram_config (
   project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   token TEXT DEFAULT '',
   allowed_users TEXT DEFAULT '',
   web_url TEXT DEFAULT '',
+  notify_chat_id TEXT DEFAULT '',
+  notify_mode TEXT DEFAULT 'all',
   enabled INTEGER DEFAULT 1,
   bot_username TEXT,
   connected INTEGER DEFAULT 0,

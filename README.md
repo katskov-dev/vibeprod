@@ -17,8 +17,9 @@ Every session gets its own Docker container. Runs on your machine, with your API
 
 opencode is an excellent terminal coding agent. Vibeprod is the layer around it
 that a *team* needs: a web UI over many sessions at once, agents defined once
-and reused, cron schedules, inbound webhooks, a Telegram channel, and a
-reusable MCP catalog — all in one FastAPI process with a SQLite file next to it.
+and reused, cron schedules, inbound and outbound webhooks, a Telegram channel,
+and a reusable MCP catalog — all in one FastAPI process with a SQLite file next
+to it.
 
 The whole thing is roughly 6,000 lines of Python plus one dependency-free
 frontend. There is no build step, no message queue, no Kubernetes.
@@ -118,13 +119,34 @@ curl -X POST http://localhost:8000/api/webhooks/pr-review/run \
 Add `?wait=<seconds>` to block until the run finishes and get the result in the
 response instead of polling.
 
+**Outgoing webhooks** push broker events to your systems (Automation →
+"Outgoing"). Subscribe a URL to events like `session.completed`,
+`session.failed`, `schedule.fired` or `webhook.received` and the broker will
+POST to it:
+
+```json
+{
+  "event": "session.completed",
+  "timestamp": "2026-08-15T09:00:00Z",
+  "data": {"id": "...", "title": "Review PR #482", "status": "completed", "result_text": "…"}
+}
+```
+
+Requests carry `X-Vibeprod-Event` and `X-Vibeprod-Delivery` headers and, if you
+set a secret, an HMAC-SHA256 signature in `X-Vibeprod-Signature: sha256=<hex>`
+over the raw body. Deliveries retry with backoff (1s → 5s → 15s → 60s → 300s)
+on network errors, 429 and 5xx; every attempt lands in the per-webhook delivery
+log with the response code and error.
+
 ![Channels](docs/screenshots/channels.png)
 
 **Telegram** runs inside the broker on long polling — no extra dependency, no
 public URL. Configure the bot token and allowed user IDs in the UI. The first
 message opens a session, later ones continue it, and the agent's reply is
 streamed by editing the bot's message in place. Commands: `/agents`, `/agent N`,
-`/new`, `/abort`, `/status`, `/link`.
+`/new`, `/abort`, `/status`, `/link`, `/chatid`. Set a notification chat (see
+`/chatid`) to receive summaries of scheduled and webhook runs — on every run or
+only on errors.
 
 ### Live sessions
 
@@ -159,6 +181,7 @@ authentication or multi-user support at all*.
 | Container per session | ✅ | ✅ | ❌ runs on host | ❌ runs on host | ✅ vendor sandbox |
 | Cron schedules | ✅ built in | ☁️ cloud tier | ❌ | ❌ | ⚠️ varies |
 | Inbound webhooks | ✅ built in | ☁️ cloud tier | ❌ | ❌ | ⚠️ varies |
+| Outbound webhooks | ✅ built in | ⚠️ varies | ❌ | ❌ | ⚠️ varies |
 | Chat channel (Telegram) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | MCP support | ✅ + shared catalog | ✅ | ✅ | ✅ | ⚠️ varies |
 | Agent that configures the platform | ✅ guardian MCP | ❌ | ❌ | ❌ | ❌ |
@@ -205,6 +228,11 @@ POST       /api/mcp-catalog/{id}/start|stop   docker services
 POST       /api/mcp-catalog/{id}/attach       {agent_id}
 GET/POST   /api/webhooks              PUT/DELETE /api/webhooks/{id}
 POST       /api/webhooks/{slug}/run           body {prompt?, title?}, X-Webhook-Secret, ?wait=<sec>
+GET/POST   /api/out-webhooks          PUT/DELETE /api/out-webhooks/{id}
+GET        /api/out-webhooks/events
+POST       /api/out-webhooks/{id}/test        send webhook.test to the URL
+GET        /api/out-webhooks/{id}/deliveries  delivery log (status, HTTP code, attempts)
+POST       /api/out-webhooks/{id}/deliveries/{did}/retry
 GET        /api/channels
 GET/PUT/DELETE /api/telegram          POST /api/telegram/test {token}
 GET/POST   /api/sessions              POST /api/sessions/{id}/prompt|abort|restart

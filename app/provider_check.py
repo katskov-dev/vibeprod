@@ -5,12 +5,16 @@
 2. список моделей;
 3. опционально — реальный тест-запрос к модели (deep-проверка).
 """
+import json
+import os
 import re
 import secrets
 import shutil
 import tempfile
+import threading
 import time
 import uuid
+from pathlib import Path
 
 import httpx
 from docker.types import Mount
@@ -43,6 +47,129 @@ ENV_VAR_MAP = {
 }
 
 KNOWN_PROVIDER_IDS = sorted(ENV_VAR_MAP.keys())
+
+CATALOG_TTL = int(os.environ.get("VIBEPROD_CATALOG_TTL", str(24 * 3600)))
+CATALOG_FILE = Path(
+    os.environ.get("VIBEPROD_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
+) / "provider_catalog.json"
+
+_catalog_lock = threading.Lock()
+_catalog_mem = None
+_catalog_mem_at = 0.0
+
+
+def load_catalog_from_disk():
+    """Кэш каталога провайдеров с диска (без поднятия контейнера)."""
+    try:
+        with open(CATALOG_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _fetch_catalog_live():
+    """Поднимает probe-контейнер и спрашивает у opencode полный каталог провайдеров."""
+    ws = tempfile.mkdtemp(prefix="vibeprod-catalog-")
+    token = secrets.token_urlsafe(24)
+    container = None
+    try:
+        client = docker_client()
+        env = {
+            "OPENCODE_SERVER_PASSWORD": token,
+            "OPENCODE_SERVER_USERNAME": USERNAME,
+        }
+        container = client.containers.run(
+            image=IMAGE,
+            command=_entrypoint_cmd(ensure_image()),
+            detach=True,
+            working_dir="/workspace",
+            environment=env,
+            mounts=[Mount(target="/workspace", source=ws, type="bind")],
+            ports={f"{OPENCODE_PORT}/tcp": None},
+            labels={"vibeprod.probe": "1"},
+            name=f"vibeprod-catalog-{uuid.uuid4().hex[:10]}",
+        )
+        port = get_host_port(container.id)
+        url = f"http://127.0.0.1:{port}"
+        if not wait_healthy(url, token, timeout=90):
+            logs = container.logs(tail=40).decode("utf-8", "replace")
+            raise RuntimeError(f"opencode serve не поднялся: {logs[-400:]}")
+        version = "?"
+        try:
+            version = httpx.get(
+                f"{url}/global/health", auth=(USERNAME, token), timeout=10, trust_env=False
+            ).json().get("version", "?")
+        except Exception:
+            pass
+        r = httpx.get(f"{url}/provider", auth=(USERNAME, token), timeout=60, trust_env=False)
+        r.raise_for_status()
+        data = r.json()
+        default = data.get("default") or {}
+        providers = []
+        for p in data.get("all") or []:
+            models = p.get("models") or {}
+            providers.append({
+                "id": p.get("id"),
+                "name": p.get("name") or "",
+                "models": sorted(models.keys()),
+                "default_model": default.get(p.get("id")),
+            })
+        providers = [p for p in providers if p.get("id")]
+        providers.sort(key=lambda x: x["id"])
+        ts = time.time()
+        return {
+            "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)),
+            "_fetched_ts": ts,
+            "version": version,
+            "count": len(providers),
+            "providers": providers,
+            "connected": data.get("connected") or [],
+        }
+    finally:
+        if container is not None:
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
+        shutil.rmtree(ws, ignore_errors=True)
+
+
+def fetch_available_providers(force=False):
+    """Каталог всех провайдеров, известных opencode.
+
+    Кэшируется в памяти и в CATALOG_FILE (TTL — VIBEPROD_CATALOG_TTL, сутки по умолчанию).
+    force=True перечитывает у opencode, при ошибке отдаёт устаревший кэш со stale=True.
+    """
+    global _catalog_mem, _catalog_mem_at
+    now = time.time()
+    if not force and _catalog_mem and now - _catalog_mem_at < CATALOG_TTL:
+        return _catalog_mem
+    with _catalog_lock:
+        if not force and _catalog_mem and time.time() - _catalog_mem_at < CATALOG_TTL:
+            return _catalog_mem
+        disk = load_catalog_from_disk()
+        if not force and disk and time.time() - float(disk.get("_fetched_ts") or 0) < CATALOG_TTL:
+            _catalog_mem, _catalog_mem_at = disk, time.time()
+            return disk
+        try:
+            data = _fetch_catalog_live()
+            data["stale"] = False
+        except Exception:
+            if disk is not None:
+                stale = dict(disk)
+                stale["stale"] = True
+                _catalog_mem, _catalog_mem_at = stale, time.time()
+                return stale
+            raise
+        try:
+            CATALOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(CATALOG_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except OSError:
+            pass
+        _catalog_mem, _catalog_mem_at = data, time.time()
+        return data
 
 
 def env_var_for(provider_id):

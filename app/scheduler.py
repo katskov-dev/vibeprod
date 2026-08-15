@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from . import db
+from . import events
 from . import session_manager
 
 log = logging.getLogger("vibeprod.sched")
@@ -84,6 +85,15 @@ def _fire(schedule_id):
         )
         db.execute("UPDATE schedule_runs SET session_id=? WHERE id=?", (sid, run_id))
         db.execute("UPDATE schedules SET last_run=datetime('now') WHERE id=?", (schedule_id,))
+        events.emit(
+            "schedule.fired",
+            {
+                "schedule_id": schedule_id,
+                "run_id": run_id,
+                "title": row["title"],
+                "session_id": sid,
+            },
+        )
         if loop:
             asyncio.run_coroutine_threadsafe(_run(sid, row["prompt"]), loop)
         else:

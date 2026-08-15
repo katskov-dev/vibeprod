@@ -1,5 +1,6 @@
 """Управление MCP-сервисами из каталога (отдельные docker-контейнеры)."""
 import logging
+import os
 from pathlib import Path
 
 import docker
@@ -9,6 +10,14 @@ from .docker_runner import docker_client, ensure_mcp_network
 log = logging.getLogger("vibeprod.mcp")
 
 VIBEPROD_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _service_env():
+    """Env для docker-сервисов: прокидываем S3-доступ (файлы проекта)."""
+    return {
+        k: v for k, v in os.environ.items()
+        if k.startswith("VIBEPROD_S3_") and v
+    }
 
 
 def build_dir(entry):
@@ -55,6 +64,7 @@ def ensure_running(entry):
         name=name,
         detach=True,
         network=entry.get("service_network") or "vibeprod-mcp",
+        environment=_service_env(),
         restart_policy={"Name": "unless-stopped"},
     )
 

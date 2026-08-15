@@ -19,8 +19,37 @@ services:
       - VIBEPROD_IDLE_TTL_MIN=${VIBEPROD_IDLE_TTL_MIN:-120}
       - VIBEPROD_PORT=${VIBEPROD_PORT:-8000}
       - VIBEPROD_HOST_DATA_DIR=${PWD}/data
+      - VIBEPROD_S3_ENDPOINT=${VIBEPROD_S3_ENDPOINT:-http://vibeprod-minio:9000}
+      - VIBEPROD_S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - VIBEPROD_S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY:-}
+    networks:
+      - vibeprod-mcp
     restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: vibeprod-minio
+    command: server /data --console-address ":9001"
+    ports:
+      # API и консоль публикуются только на loopback.
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    networks:
+      - vibeprod-mcp
+    restart: unless-stopped
+
+volumes:
+  minio-data:
+
+networks:
+  vibeprod-mcp:
+    name: vibeprod-mcp

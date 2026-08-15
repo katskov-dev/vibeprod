@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 
 from . import db
+from . import events
+from . import files_store
 from .docker_runner import (
     container_exists,
     container_logs,
@@ -114,6 +116,17 @@ def load_provider_env():
     return env
 
 
+def project_env(project_id):
+    """Контекст проекта для воркера: id, токен файлов и URL брокера для ссылок."""
+    env = {"VIBEPROD_BROKER_URL": files_store.broker_url()}
+    if project_id:
+        token = files_store.file_token(project_id)
+        if token:
+            env["VIBEPROD_PROJECT_ID"] = str(project_id)
+            env["VIBEPROD_FILE_TOKEN"] = token
+    return env
+
+
 def _ensure_mcp_services(mcp_rows):
     """Поднимает docker-сервисы каталога, на которые ссылаются MCP агента."""
     from . import mcp_services
@@ -146,6 +159,7 @@ def _terminal_fail(sid, error):
         "WHERE session_id=? AND status='running'",
         (str(error)[:2000], sid),
     )
+    events.emit("session.failed", events.session_event_data(sid))
 
 
 def create_session(agent_id, title, prompt, source="manual", project_id=None):
@@ -161,6 +175,7 @@ def create_session(agent_id, title, prompt, source="manual", project_id=None):
         "VALUES(?,?,?,?,?,?,?,'queued',?,datetime('now'))",
         (sid, agent["id"], agent["name"], project_id, title, source or "manual", prompt, agent["model"]),
     )
+    events.emit("session.created", events.session_event_data(sid))
     return sid
 
 
@@ -185,7 +200,7 @@ async def start_session(sid, initial_prompt=None):
             from .guardian_mcp import guardian_mcp_entry
 
             agents_rows = [agent]
-            guardian_mcp = guardian_mcp_entry()
+            guardian_mcp = guardian_mcp_entry(session_id=sid, project_id=row["project_id"])
         else:
             agents_rows = [a for a in agents_rows if not a.get("is_guardian")]
             guardian_mcp = None
@@ -204,7 +219,7 @@ async def start_session(sid, initial_prompt=None):
     )
     try:
         container_id = await asyncio.to_thread(
-            run_worker, sid, host_ws_dir(sid), storage_name(sid), token, load_provider_env()
+            run_worker, sid, host_ws_dir(sid), storage_name(sid), token, {**load_provider_env(), **project_env(row["project_id"])}
         )
         db.execute("UPDATE sessions SET container_id=? WHERE id=?", (container_id, sid))
         port = await asyncio.to_thread(get_host_port, container_id)
@@ -232,6 +247,7 @@ async def start_session(sid, initial_prompt=None):
             "UPDATE sessions SET opencode_session_id=?, status='running', last_activity=datetime('now') WHERE id=?",
             (ocs["id"], sid),
         )
+        events.emit("session.started", events.session_event_data(sid))
         await streams.start(sid, url, token, ocs["id"])
         if initial_prompt:
             await send_prompt(sid, initial_prompt)
@@ -342,6 +358,7 @@ async def expire_session(sid):
         "WHERE session_id=? AND status='running'",
         (sid,),
     )
+    events.emit("session.expired", events.session_event_data(sid))
     if not was_failed:
         await streams.broadcast(sid, {"type": "status", "status": "expired"})
 
@@ -437,3 +454,4 @@ def reconcile():
             "UPDATE sessions SET status='failed', error='container lost', finished_at=datetime('now') WHERE id=?",
             (sid,),
         )
+        events.emit("session.failed", events.session_event_data(sid))

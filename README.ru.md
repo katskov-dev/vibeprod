@@ -18,8 +18,8 @@
 opencode — отличный терминальный агент. Vibeprod — слой вокруг него, который
 нужен, когда агентов становится больше одного: веб-интерфейс над всеми сеансами
 сразу, агенты, описанные один раз и переиспользуемые, cron-расписания, входящие
-вебхуки, канал в Telegram и общий каталог MCP. Всё это — один процесс FastAPI и
-файл sqlite рядом с ним.
+и исходящие вебхуки, канал в Telegram и общий каталог MCP. Всё это — один
+процесс FastAPI и файл sqlite рядом с ним.
 
 Внутри примерно 6 000 строк питона и фронтенд без единой зависимости. Ни сборки,
 ни очереди сообщений, ни кубернетеса.
@@ -99,6 +99,21 @@ local (команда) или remote (URL). *service* — docker-контейн�
 `vibeprod-mcp`; встроенный **playwright** даёт любому агенту настоящий браузер и
 поднимается автоматически, когда нужен сессии. Добавление к агенту — одна кнопка.
 
+### Файлы проектов (MinIO)
+
+У каждого проекта своё хранилище файлов в **MinIO** (раздел «Файлы» в меню).
+Загружать файлы можно из интерфейса, а агенты делают это через MCP **files** из
+каталога (подключение — одной кнопкой): инструмент `upload_file` заливает
+локальный файл воркера в проект и возвращает публичную ссылку. Вместе со
+скиллом **screenshot-to-files** и playwright это даёт флоу «скриншот →
+файлы проекта → ссылка в ответе».
+
+MinIO поднимается compose: `docker compose up -d minio` (порты 9000/9001 — только
+loopback). Доступ брокера настраивается через `VIBEPROD_S3_ENDPOINT`,
+`VIBEPROD_S3_ACCESS_KEY`, `VIBEPROD_S3_SECRET_KEY` (в compose подставляются
+автоматически). Ссылки на файлы для агентов строятся от `VIBEPROD_BROKER_URL`
+(по умолчанию `http://host.docker.internal:8000`).
+
 ### Автоматизация: расписания, вебхуки, Telegram
 
 ![Расписания](docs/screenshots/schedules.png)
@@ -118,13 +133,34 @@ curl -X POST http://localhost:8000/api/webhooks/pr-review/run \
 `?wait=<сек>` — дождаться завершения и получить результат прямо в ответе, вместо
 опроса.
 
+**Исходящие вебхуки** шлют события брокера в ваши системы (Автоматизация →
+«Исходящие»). Подпишите URL на события вроде `session.completed`,
+`session.failed`, `schedule.fired` или `webhook.received` — брокер будет
+присылать на него POST:
+
+```json
+{
+  "event": "session.completed",
+  "timestamp": "2026-08-15T09:00:00Z",
+  "data": {"id": "...", "title": "Проверка PR #482", "status": "completed", "result_text": "…"}
+}
+```
+
+Запросы несут заголовки `X-Vibeprod-Event` и `X-Vibeprod-Delivery`, а при
+заданном секрете — подпись `X-Vibeprod-Signature: sha256=<hex>` (HMAC-SHA256 от
+сырого тела). Доставка повторяется с бэкoффом (1с → 5с → 15с → 60с → 300с) при
+сетевых ошибках, 429 и 5xx; каждая попытка попадает в журнал доставок с кодом
+ответа и ошибкой.
+
 ![Каналы](docs/screenshots/channels.png)
 
 **Telegram** живёт внутри брокера на long-polling — без новых зависимостей и без
 публичного URL. Токен бота и разрешённые user id настраиваются в интерфейсе.
 Первое сообщение открывает сессию, следующие продолжают её, ответ агента
 дописывается правками в сообщение бота. Команды: `/agents`, `/agent N`, `/new`,
-`/abort`, `/status`, `/link`.
+`/abort`, `/status`, `/link`, `/chatid`. Если задать чат для уведомлений (id
+сообщит бот по команде `/chatid`), туда будут приходить сводки о завершении
+запусков по расписанию и вебхукам — на каждый запуск или только при ошибке.
 
 ### Живые сессии
 
@@ -160,6 +196,7 @@ probe-контейнер с тем же образом opencode и вашим к
 | Контейнер на сеанс | ✅ | ✅ | ❌ на хосте | ❌ на хосте | ✅ песочница вендора |
 | Cron-расписания | ✅ встроены | ☁️ облачный тариф | ❌ | ❌ | ⚠️ по-разному |
 | Входящие вебхуки | ✅ встроены | ☁️ облачный тариф | ❌ | ❌ | ⚠️ по-разному |
+| Исходящие вебхуки | ✅ встроены | ⚠️ по-разному | ❌ | ❌ | ⚠️ по-разному |
 | Канал в мессенджере (Telegram) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Поддержка MCP | ✅ + общий каталог | ✅ | ✅ | ✅ | ⚠️ по-разному |
 | Агент настраивает саму платформу | ✅ guardian MCP | ❌ | ❌ | ❌ | ❌ |
@@ -206,6 +243,11 @@ POST       /api/mcp-catalog/{id}/start|stop   docker-сервисы
 POST       /api/mcp-catalog/{id}/attach       {agent_id}
 GET/POST   /api/webhooks              PUT/DELETE /api/webhooks/{id}
 POST       /api/webhooks/{slug}/run           тело {prompt?, title?}, X-Webhook-Secret, ?wait=<сек>
+GET/POST   /api/out-webhooks          PUT/DELETE /api/out-webhooks/{id}
+GET        /api/out-webhooks/events
+POST       /api/out-webhooks/{id}/test        отправить webhook.test на URL
+GET        /api/out-webhooks/{id}/deliveries  журнал доставок (статус, HTTP-код, попытки)
+POST       /api/out-webhooks/{id}/deliveries/{did}/retry
 GET        /api/channels
 GET/PUT/DELETE /api/telegram          POST /api/telegram/test {token}
 GET/POST   /api/sessions              POST /api/sessions/{id}/prompt|abort|restart

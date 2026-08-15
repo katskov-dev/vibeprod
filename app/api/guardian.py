@@ -32,7 +32,7 @@ def _err(msg_id, code, message):
     return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
 
-async def _dispatch_one(msg):
+async def _dispatch_one(msg, ctx=None):
     if not isinstance(msg, dict):
         return _err(None, -32700, "Parse error")
     msg_id = msg.get("id")
@@ -52,16 +52,33 @@ async def _dispatch_one(msg):
         return _ok(msg_id, {"tools": TOOLS})
     if method == "tools/call":
         params = msg.get("params") or {}
-        return _ok(msg_id, await call_tool(params.get("name"), params.get("arguments") or {}))
+        return _ok(msg_id, await call_tool(params.get("name"), params.get("arguments") or {}, ctx))
     return _err(msg_id, -32601, f"Method not found: {method}")
 
 
-async def _dispatch(payload):
+async def _dispatch(payload, ctx=None):
     if isinstance(payload, list):
-        responses = [await _dispatch_one(m) for m in payload]
+        responses = [await _dispatch_one(m, ctx) for m in payload]
         responses = [r for r in responses if r is not None]
         return responses if responses else None
-    return await _dispatch_one(payload)
+    return await _dispatch_one(payload, ctx)
+
+
+def _request_ctx(request: Request):
+    """Контекст вызова инструментов: сессия и проект воркера из заголовков."""
+    ctx = {}
+    sid = request.headers.get("X-Vibeprod-Session") or ""
+    if sid:
+        row = db.query_one("SELECT id, project_id FROM sessions WHERE id=?", (sid,))
+        if row:
+            ctx["session_id"] = row["id"]
+            if row["project_id"] is not None:
+                ctx["project_id"] = row["project_id"]
+    else:
+        pid = request.headers.get("X-Vibeprod-Project") or ""
+        if pid.isdigit():
+            ctx["project_id"] = int(pid)
+    return ctx
 
 
 @router.post("/guardian/mcp")
@@ -73,7 +90,7 @@ async def mcp_endpoint(request: Request, authorization: str = Header(default="")
     except ValueError:
         return _json_response(400, _err(None, -32700, "Parse error"))
     try:
-        responses = await _dispatch(body)
+        responses = await _dispatch(body, _request_ctx(request))
     except Exception as exc:
         log.exception("guardian mcp dispatch")
         return _json_response(500, _err(None, -32603, f"Internal error: {exc}"))

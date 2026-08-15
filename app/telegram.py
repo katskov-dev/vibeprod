@@ -22,6 +22,7 @@ import httpx
 
 from . import db
 from . import session_manager
+from .channel import API, MSG_LIMIT, api_call as _api, split_text as _split
 from .streamer import streams
 
 log = logging.getLogger("vibeprod.tg")
@@ -30,8 +31,6 @@ ENV_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ENV_ALLOWED = os.environ.get("TELEGRAM_ALLOWED_USERS", "").strip()
 ENV_WEB_URL = os.environ.get("TELEGRAM_WEB_URL", "").strip()
 
-API = "https://api.telegram.org"
-MSG_LIMIT = 4000
 EDIT_INTERVAL = 1.5
 POLL_TIMEOUT = 30
 
@@ -48,6 +47,7 @@ HELP = (
     "/abort — остановить генерацию\n"
     "/status — статус текущей сессии\n"
     "/link — ссылка на сессию в веб-интерфейсе\n"
+    "/chatid — id этого чата (для уведомлений о фоновых запусках)\n"
     "/help — эта справка"
 )
 
@@ -143,18 +143,6 @@ async def _run_bot(pid, cfg):
                     raise
                 except Exception:
                     log.exception("update %s", upd["update_id"])
-
-
-async def _api(client, token, method, **params):
-    for _ in range(4):
-        r = await client.post(f"/bot{token}/{method}", json=params)
-        if r.status_code == 429:
-            retry = int((r.json().get("parameters") or {}).get("retry_after", 2)) + 1
-            await asyncio.sleep(retry)
-            continue
-        r.raise_for_status()
-        return r.json()
-    r.raise_for_status()
 
 
 async def _handle(client, token, pid, web_url, allowed, msg):
@@ -271,6 +259,15 @@ async def _command(client, token, pid, web_url, chat_id, text):
                 await _send(client, token, chat_id, f"{web_url}/#sessions/{s['id']}")
             else:
                 await _send(client, token, chat_id, "Укажите URL веб-интерфейса в настройках канала.")
+        return
+    if cmd == "/chatid":
+        await _send(
+            client,
+            token,
+            chat_id,
+            f"ID этого чата: {chat_id}\nУкажите его в настройках канала — сюда будут приходить "
+            f"сводки о завершении запусков по расписанию и вебхукам.",
+        )
         return
     await _send(client, token, chat_id, "Неизвестная команда. Справка: /help")
 
@@ -423,22 +420,6 @@ async def _finish(client, token, web_url, chat_id, msg_id, sid, event, parts):
 
 def _full_text(parts):
     return "\n\n".join(t for t in parts.values() if t)
-
-
-def _split(text, limit=MSG_LIMIT):
-    text = text or ""
-    if len(text) <= limit:
-        return [text] if text else []
-    chunks = []
-    while len(text) > limit:
-        cut = text.rfind("\n", 0, limit)
-        if cut < limit // 2:
-            cut = limit
-        chunks.append(text[:cut])
-        text = text[cut:].lstrip("\n")
-    if text:
-        chunks.append(text)
-    return chunks
 
 
 async def _send(client, token, chat_id, text, reply_to=None):

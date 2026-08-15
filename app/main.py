@@ -10,6 +10,9 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth
 from . import db
+from . import files_store
+from . import notify
+from . import outwebhooks
 from . import scheduler
 from . import session_manager
 from . import telegram
@@ -18,7 +21,9 @@ from .api import (
     auth as auth_api,
     catalog,
     channels,
+    files,
     guardian,
+    outwebhooks as outwebhooks_api,
     projects,
     providers,
     schedules,
@@ -53,10 +58,20 @@ async def lifespan(app: FastAPI):
                 default_project["id"] if default_project else None,
             ),
         )
+    try:
+        from . import mcp_services
+
+        pw = db.query_one("SELECT * FROM mcp_catalog WHERE name='playwright' AND service_container IS NOT NULL")
+        if pw:
+            await asyncio.to_thread(mcp_services.ensure_running, pw)
+    except Exception:
+        log.warning("playwright service not started", exc_info=True)
     await asyncio.to_thread(session_manager.reconcile)
     await session_manager.reattach_streamers()
     scheduler.init_scheduler(asyncio.get_running_loop())
     cleanup_task = asyncio.create_task(session_manager.cleanup_loop())
+    streams.hooks.append(notify.on_session_done)
+    await outwebhooks.requeue_pending()
     await telegram.start()
     log.info("vibeprod broker up")
     yield
@@ -72,7 +87,9 @@ app.include_router(auth_api.router)
 app.include_router(agents.router)
 app.include_router(catalog.router)
 app.include_router(channels.router)
+app.include_router(files.router)
 app.include_router(guardian.router)
+app.include_router(outwebhooks_api.router)
 app.include_router(projects.router)
 app.include_router(providers.router)
 app.include_router(sessions.router)
@@ -99,9 +116,20 @@ async def require_auth(request: Request, call_next):
         return await call_next(request)
     if auth.check_request(request):
         return await call_next(request)
+    if path in ("/api/files/content", "/api/files/stat") and _file_token_ok(request):
+        return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return RedirectResponse("/login")
+
+
+def _file_token_ok(request: Request) -> bool:
+    """Контент файлов доступен по токену проекта (ссылки для агентов)."""
+    try:
+        project_id = int(request.query_params.get("project_id") or "")
+        return files_store.check_file_token(project_id, request.query_params.get("token") or "")
+    except (TypeError, ValueError):
+        return False
 
 
 @app.get("/")

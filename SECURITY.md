@@ -36,6 +36,22 @@ publish the port directly:
   want reachable from outside. Expose *only* that path through the proxy, and
   set a secret on each webhook (checked via the `X-Webhook-Secret` header).
 
+## Outgoing webhooks
+
+Outgoing webhooks make the broker send HTTP POSTs to URLs you configure. Two
+things to keep in mind:
+
+- **SSRF:** the broker will happily POST to any URL reachable from the host —
+  including `127.0.0.1`, `169.254.169.254` (cloud metadata) and other internal
+  services. Since anyone with access to the broker can add an outgoing webhook,
+  that is effectively a port-scan/request-forgery primitive. Treat broker
+  access as admin access (see the threat model above).
+- **Signatures:** set a secret on each outgoing webhook and verify the
+  `X-Vibeprod-Signature` header (HMAC-SHA256 over the raw request body) on the
+  receiving side, so your endpoint can tell real Vibeprod events from spoofed
+  ones. Secrets are stored in plaintext in `data/vibeprod.db`, like provider
+  keys.
+
 ## What agents can do
 
 Each session runs in its own container, and opencode permission prompts are

@@ -1,0 +1,9 @@
+{
+  "name": "vibeprod-files-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "minio": "^8.0.4"
+  }
+}

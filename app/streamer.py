@@ -6,6 +6,7 @@ import logging
 import httpx
 
 from . import db
+from . import events
 from .opencode_client import OpencodeClient, USERNAME
 
 log = logging.getLogger("vibeprod.stream")
@@ -65,10 +66,26 @@ def _result_error(messages):
     return None
 
 
+def _result_text(messages):
+    for m in reversed(messages or []):
+        info = m.get("info") or {}
+        if info.get("role") != "assistant":
+            continue
+        texts = [
+            (p.get("text") or "").strip()
+            for p in info.get("parts") or []
+            if p.get("type") == "text" and (p.get("text") or "").strip()
+        ]
+        if texts:
+            return "\n\n".join(texts)
+    return None
+
+
 class StreamManager:
     def __init__(self):
         self.tasks = {}
         self.subs = {}
+        self.hooks = []
 
     async def start(self, sid, base_url, token, oc_sid):
         await self.stop(sid)
@@ -197,6 +214,25 @@ class StreamManager:
             (status, (error or "")[:2000], sid),
         )
         await self.broadcast(sid, {"type": "done", "status": status, "error": error, "result": result})
+        for hook in self.hooks:
+            try:
+                await hook(sid, status, error, result)
+            except Exception:
+                log.warning("done hook %s failed", hook, exc_info=True)
+        try:
+            extra = {}
+            if status == "failed" and error:
+                extra["error"] = error
+            if result:
+                text = _result_text(result)
+                if text:
+                    extra["result_text"] = text
+            events.emit(
+                "session.completed" if status == "completed" else "session.failed",
+                events.session_event_data(sid, **extra),
+            )
+        except Exception:
+            log.warning("emit session done %s failed", sid, exc_info=True)
 
 
 streams = StreamManager()

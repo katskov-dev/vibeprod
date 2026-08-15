@@ -37,6 +37,11 @@ def init_db():
         pcols = {r["name"] for r in conn.execute("PRAGMA table_info(providers)").fetchall()}
         if "models_full" not in pcols:
             conn.execute("ALTER TABLE providers ADD COLUMN models_full TEXT")
+        prcols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
+        if "file_token" not in prcols:
+            conn.execute("ALTER TABLE projects ADD COLUMN file_token TEXT")
+        for row in conn.execute("SELECT id FROM projects WHERE file_token IS NULL OR file_token=''"):
+            conn.execute("UPDATE projects SET file_token=? WHERE id=?", (secrets.token_urlsafe(24), row["id"]))
         gcols = {r["name"] for r in conn.execute("PRAGMA table_info(agents)").fetchall()}
         if "is_guardian" not in gcols:
             conn.execute("ALTER TABLE agents ADD COLUMN is_guardian INTEGER DEFAULT 0")
@@ -45,6 +50,11 @@ def init_db():
             conn.execute(
                 "ALTER TABLE telegram_chats ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL"
             )
+        tccols = {r["name"] for r in conn.execute("PRAGMA table_info(telegram_config)").fetchall()}
+        if "notify_chat_id" not in tccols:
+            conn.execute("ALTER TABLE telegram_config ADD COLUMN notify_chat_id TEXT DEFAULT ''")
+        if "notify_mode" not in tccols:
+            conn.execute("ALTER TABLE telegram_config ADD COLUMN notify_mode TEXT DEFAULT 'all'")
         if not conn.execute("SELECT id FROM mcp_catalog WHERE name='playwright'").fetchone():
             conn.execute(
                 "INSERT INTO mcp_catalog(name, description, kind, type, url, "
@@ -54,8 +64,44 @@ def init_db():
                 "'http://vibeprod-playwright:8931/mcp', 'mcp/playwright', "
                 "'vibeprod-playwright', 8931, 'vibeprod-mcp', 1)"
             )
+        if not conn.execute("SELECT id FROM mcp_catalog WHERE name='files'").fetchone():
+            conn.execute(
+                "INSERT INTO mcp_catalog(name, description, kind, type, url, headers, "
+                "service_build_dir, service_container, service_port, service_network, builtin) "
+                "VALUES('files', 'Файлы проекта: загрузка локальных файлов воркера "
+                "(например, скриншотов playwright) в хранилище MinIO проекта и публичные "
+                "ссылки на них. Живёт в контейнере playwright.', 'service', 'remote', "
+                "'http://vibeprod-playwright:8932/mcp', "
+                "'{\"X-Vibeprod-Project\": \"{env:VIBEPROD_PROJECT_ID}\", "
+                "\"X-Vibeprod-Token\": \"{env:VIBEPROD_FILE_TOKEN}\", "
+                "\"X-Broker-Url\": \"{env:VIBEPROD_BROKER_URL}\"}', "
+                "'mcp/playwright', 'vibeprod-playwright', 8932, 'vibeprod-mcp', 1)"
+            )
+        if not conn.execute("SELECT id FROM skills WHERE name='screenshot-to-files'").fetchone():
+            conn.execute(
+                "INSERT INTO skills(name, description, body) VALUES('screenshot-to-files', "
+                "'Скриншоты страниц в файлы проекта (playwright + files MCP)', ?)",
+                (
+                    "Скриншот страницы с сохранением в файлы проекта.\n\n"
+                    "1. Сделай скриншот через инструмент playwright MCP `browser_take_screenshot` "
+                    "с filename внутри `/vibeprod-shots/`, например `/vibeprod-shots/отчёт.png` "
+                    "(если указать просто имя без пути, файл окажется в `/vibeprod-shots`).\n"
+                    "2. Загрузи файл в файлы проекта инструментом files MCP `upload_file`: "
+                    "source — путь из шага 1, target — путь в файлах проекта, например "
+                    "`shots/отчёт.png`.\n"
+                    "3. Вставь полученную ссылку в ответ как markdown-картинку "
+                    "`![подпись](<ссылка>)` — она отобразится в интерфейсе.\n\n"
+                    "Если нужно несколько скриншотов — повтори шаги для каждого, "
+                    "используй понятные имена файлов.",
+                ),
+            )
         if not conn.execute("SELECT id FROM projects LIMIT 1").fetchone():
-            conn.execute("INSERT INTO projects(name, description) VALUES('Основной', 'Проект по умолчанию')")
+            conn.execute(
+                "INSERT INTO projects(name, description, file_token) VALUES('Основной', 'Проект по умолчанию', ?)",
+                (secrets.token_urlsafe(24),),
+            )
+        for row in conn.execute("SELECT id FROM projects WHERE file_token IS NULL OR file_token=''"):
+            conn.execute("UPDATE projects SET file_token=? WHERE id=?", (secrets.token_urlsafe(24), row["id"]))
         pid = conn.execute("SELECT id FROM projects ORDER BY id LIMIT 1").fetchone()[0]
         for table in ("agents", "sessions", "schedules", "providers"):
             conn.execute(f"UPDATE {table} SET project_id=? WHERE project_id IS NULL", (pid,))
@@ -76,10 +122,19 @@ def init_db():
                 model = default_agent[0]
             conn.execute(
                 "INSERT INTO agents(name, description, mode, model, system_prompt, permission, is_default, is_guardian, project_id) "
-                "VALUES('guardian', 'Системный агент-оператор: настраивает проект через guardian MCP', 'primary', "
+                "VALUES('vibeprod', 'Системный агент-оператор: настраивает проект через guardian MCP', 'primary', "
                 "?, ?, '\"allow\"', 0, 1, ?)",
                 (model, GUARDIAN_SYSTEM_PROMPT, pid),
             )
+        conn.execute(
+            "UPDATE agents SET name='vibeprod' WHERE is_guardian=1 AND name='guardian' "
+            "AND NOT EXISTS (SELECT 1 FROM agents WHERE is_guardian=0 AND name='vibeprod')"
+        )
+        from .guardian_prompt import GUARDIAN_SYSTEM_PROMPT
+
+        conn.execute(
+            "UPDATE agents SET system_prompt=? WHERE is_guardian=1", (GUARDIAN_SYSTEM_PROMPT,)
+        )
         conn.commit()
     finally:
         conn.close()

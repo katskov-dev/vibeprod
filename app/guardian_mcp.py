@@ -7,14 +7,18 @@ Streamable HTTP поверх JSON-RPC, без внешних зависимос�
 Authorization: Bearer <guardian_secret>.
 """
 import asyncio
+import contextvars
 import json
+import mimetypes
 import os
 import re
 import secrets
+from pathlib import Path
 
 from fastapi import HTTPException
 
 from . import db
+from . import files_store
 from . import scheduler
 from .api.agents import NAME_RE, _check_project, _validate_agent
 from .api.webhooks import _validate as _validate_webhook
@@ -42,15 +46,28 @@ def guardian_url():
     return f"http://host.docker.internal:{port}/guardian/mcp"
 
 
-def guardian_mcp_entry():
+def guardian_mcp_entry(session_id=None, project_id=None):
     """Синтетическая запись MCP для opencode.json guardian-агента."""
+    headers = {"Authorization": f"Bearer {get_secret()}"}
+    if session_id:
+        headers["X-Vibeprod-Session"] = session_id
+    if project_id is not None:
+        headers["X-Vibeprod-Project"] = str(project_id)
     return {
         "name": "guardian",
         "type": "remote",
         "url": guardian_url(),
-        "headers": json.dumps({"Authorization": f"Bearer {get_secret()}"}),
+        "headers": json.dumps(headers),
         "enabled": 1,
     }
+
+
+# Контекст вызова: сессия и проект воркера, передаваемые заголовками из opencode.json
+CALL_CTX = contextvars.ContextVar("guardian_call_ctx", default={})
+
+
+def _session_ctx():
+    return CALL_CTX.get() or {}
 
 
 def _int(value, field):
@@ -638,6 +655,95 @@ async def h_schedule_run_now(args):
     return {"ok": True}
 
 
+# ---------- файлы проекта ----------
+
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
+
+
+def _file_ctx(args):
+    """project_id из аргументов или из контекста сессии (заголовок X-Vibeprod-Project)."""
+    ctx = _session_ctx()
+    pid = args.get("project_id")
+    if pid is None and ctx.get("project_id"):
+        pid = int(ctx["project_id"])
+    if pid is None:
+        raise ToolError("project_id обязателен")
+    pid = _int(pid, "project_id")
+    if not db.query_one("SELECT id FROM projects WHERE id=?", (pid,)):
+        raise ToolError(f"проект {pid} не найден")
+    return pid
+
+
+def _workspace_path(args):
+    """Путь к файлу в workspace воркера текущей сессии (если передан workspace_path)."""
+    raw = args.get("workspace_path")
+    if not raw:
+        return None
+    ctx = _session_ctx()
+    sid = ctx.get("session_id")
+    if not sid:
+        raise ToolError("workspace_path доступен только в сессии воркера (нет X-Vibeprod-Session)")
+    from . import session_manager
+
+    root = session_manager.host_ws_dir(sid).resolve()
+    p = (root / str(raw).lstrip("/")).resolve()
+    if not str(p).startswith(str(root) + os.sep):
+        raise ToolError("workspace_path: выход за пределы workspace запрещён")
+    if not p.is_file():
+        raise ToolError(f"файл {raw} не найден в workspace сессии")
+    return p
+
+
+def h_file_list(args):
+    pid = _file_ctx(args)
+    return files_store.list_objects(pid, (args.get("prefix") or "").lstrip("/"))
+
+
+def h_file_put(args):
+    pid = _file_ctx(args)
+    target = (args.get("path") or "").strip().lstrip("/")
+    if not target:
+        raise ToolError("path обязателен")
+    ws = _workspace_path(args)
+    if ws is not None:
+        data = ws.read_bytes()
+        if len(data) > MAX_FILE_SIZE:
+            raise ToolError(f"файл больше {MAX_FILE_SIZE // (1024 * 1024)} МБ")
+        content_type = args.get("content_type") or mimetypes.guess_type(ws.name)[0] or "application/octet-stream"
+    else:
+        content = args.get("content")
+        if content is None:
+            raise ToolError("content или workspace_path обязателен")
+        if isinstance(content, (dict, list)):
+            content = json.dumps(content, ensure_ascii=False, indent=2)
+        else:
+            content = str(content)
+        data = content.encode("utf-8")
+        if len(data) > MAX_FILE_SIZE:
+            raise ToolError(f"файл больше {MAX_FILE_SIZE // (1024 * 1024)} МБ")
+        content_type = args.get("content_type") or mimetypes.guess_type(target)[0] or "text/plain"
+    files_store.upload(pid, target, data, content_type)
+    return {
+        "ok": True,
+        "path": target,
+        "size": len(data),
+        "url": files_store.content_url(pid, target),
+    }
+
+
+def h_file_delete(args):
+    pid = _file_ctx(args)
+    target = (args.get("path") or "").strip().lstrip("/")
+    if not target:
+        raise ToolError("path обязателен")
+    try:
+        files_store.stat(pid, target)
+    except Exception:
+        raise ToolError(f"файл {target} не найден в файлах проекта {pid}")
+    files_store.delete(pid, target)
+    return {"ok": True, "deleted": target}
+
+
 # ---------- сессии ----------
 
 def h_session_list(args):
@@ -723,6 +829,9 @@ HANDLERS = {
     "schedule_update": h_schedule_update,
     "schedule_delete": h_schedule_delete,
     "schedule_run_now": h_schedule_run_now,
+    "file_list": h_file_list,
+    "file_put": h_file_put,
+    "file_delete": h_file_delete,
     "session_list": h_session_list,
     "session_run": h_session_run,
     "session_abort": h_session_abort,
@@ -730,23 +839,27 @@ HANDLERS = {
 }
 
 
-async def call_tool(name, args):
+async def call_tool(name, args, ctx=None):
     fn = HANDLERS.get(name)
     if fn is None:
         return _tool_result(f"неизвестный инструмент: {name}", is_error=True)
+    token = CALL_CTX.set(ctx or {})
     try:
-        result = fn(args or {})
-        if asyncio.iscoroutine(result):
-            result = await result
-    except HTTPException as exc:
-        return _tool_result(str(exc.detail), is_error=True)
-    except ToolError as exc:
-        return _tool_result(str(exc), is_error=True)
-    except Exception as exc:
-        return _tool_result(f"{type(exc).__name__}: {exc}", is_error=True)
-    if isinstance(result, dict) and set(result.keys()) == {"content", "isError"}:
-        return result
-    return _tool_result(_pretty(result))
+        try:
+            result = fn(args or {})
+            if asyncio.iscoroutine(result):
+                result = await result
+        except HTTPException as exc:
+            return _tool_result(str(exc.detail), is_error=True)
+        except ToolError as exc:
+            return _tool_result(str(exc), is_error=True)
+        except Exception as exc:
+            return _tool_result(f"{type(exc).__name__}: {exc}", is_error=True)
+        if isinstance(result, dict) and set(result.keys()) == {"content", "isError"}:
+            return result
+        return _tool_result(_pretty(result))
+    finally:
+        CALL_CTX.reset(token)
 
 
 def _prop(ptype, desc, **extra):
@@ -866,6 +979,15 @@ TOOLS = [
     }, ["id"]),
     _tool("schedule_delete", "Удалить расписание.", {"id": _prop("integer", "id расписания")}, ["id"]),
     _tool("schedule_run_now", "Запустить расписание немедленно.", {"id": _prop("integer", "id расписания")}, ["id"]),
+    _tool("file_list", "Список файлов проекта (MinIO).", {"project_id": _prop("integer", "id проекта (необязателен — берётся из контекста сессии)"), "prefix": _prop("string", "подпапка, например 'shots'")}, []),
+    _tool("file_put", "Сохранить файл в файлы проекта и получить публичную ссылку (аналог скриншотов). content — содержимое (текст/JSON), workspace_path — путь к файлу в workspace воркера, например 'index.html' или 'dist/app.js' (читается с диска воркера).", {
+        "project_id": _prop("integer", "id проекта (необязателен — берётся из контекста сессии)"),
+        "path": _prop("string", "путь в файлах проекта, например 'reports/отчёт.md'"),
+        "content": _prop("string", "содержимое файла (альтернатива workspace_path)"),
+        "workspace_path": _prop("string", "путь к файлу в workspace воркера (альтернатива content)"),
+        "content_type": _prop("string", "MIME-тип (по умолчанию — по расширению)"),
+    }, ["path"]),
+    _tool("file_delete", "Удалить файл из файлов проекта. Требует подтверждения.", {"project_id": _prop("integer", "id проекта (необязателен — из контекста сессии)"), "path": _prop("string", "путь файла в файлах проекта")}, ["path"]),
     _tool("session_list", "Последние сессии со статусами.", {"limit": _prop("integer", "сколько вернуть (по умолчанию 20)")}, []),
     _tool("session_run", "Запустить агента с промптом в новой сессии (проверка настройки).", {
         "agent_id": _prop("integer", "id агента"),
