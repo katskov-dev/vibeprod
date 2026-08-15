@@ -274,6 +274,7 @@ async def send_prompt(sid, text):
         await asyncio.to_thread(client.prompt_async, row["opencode_session_id"], text, agent=row["agent_name"])
     finally:
         client.close()
+    streams.unfinalize(sid)
     db.execute(
         "UPDATE sessions SET status='running', last_activity=datetime('now'), finished_at=NULL WHERE id=?",
         (sid,),

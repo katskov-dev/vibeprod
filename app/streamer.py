@@ -86,9 +86,11 @@ class StreamManager:
         self.tasks = {}
         self.subs = {}
         self.hooks = []
+        self.finalized = set()
 
     async def start(self, sid, base_url, token, oc_sid):
         await self.stop(sid)
+        self.finalized.discard(sid)
         self.tasks[sid] = asyncio.create_task(self._watch(sid, base_url, token, oc_sid))
 
     async def stop(self, sid):
@@ -99,6 +101,11 @@ class StreamManager:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        self.finalized.discard(sid)
+
+    def unfinalize(self, sid):
+        """Новая генерация в живой сессии — снова разрешаем финализацию."""
+        self.finalized.discard(sid)
 
     async def finalize_completed(self, sid, base_url, token, oc_sid):
         await self._finalize(sid, base_url, token, oc_sid, "completed", None)
@@ -181,6 +188,13 @@ class StreamManager:
                 finally:
                     client.close()
         if etype in FINAL_EVENTS:
+            if sid in self.finalized:
+                # Аборт (и не только) шлёт несколько финальных событий подряд
+                # (session.error + session.idle × N). Финализируем один раз:
+                # иначе UI получит несколько done → несколько одинаковых
+                # тостов, а статусы будут перезаписываться.
+                return
+            self.finalized.add(sid)
             status = "completed" if etype == "session.idle" else "failed"
             error = None
             if status == "failed":
