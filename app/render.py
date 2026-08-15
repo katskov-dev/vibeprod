@@ -101,7 +101,7 @@ def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None)
         "$schema": "https://opencode.ai/config.json",
         "model": default["model"] or DEFAULT_MODEL_FALLBACK,
         "default_agent": default["name"],
-        "permission": "allow",
+        "permission": {"edit": "allow", "bash": "allow"},
     }
     mcp = _build_mcp(list(mcp_rows) + ([guardian_mcp] if guardian_mcp else []))
     if mcp:

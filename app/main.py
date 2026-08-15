@@ -94,6 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="opencode Vibeprod", lifespan=lifespan)
 app.include_router(auth_api.router)
 app.include_router(agents.router)
+app.include_router(broker_mcp_api.router)
 app.include_router(catalog.router)
 app.include_router(channels.router)
 app.include_router(files.router)
