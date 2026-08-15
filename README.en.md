@@ -200,6 +200,14 @@ each session): `telegram_send` — message the user on Telegram,
 `telegram_info` — channel status. Handy for scheduled runs: the agent finishes a
 job and delivers the result and files to the chat itself.
 
+### Issues
+
+A simple issue tracker: title, detailed description, date, status
+(open / in progress / done) and tags, with search and filters. Create issues
+from the UI or let agents do it — every agent has built-in `issue_create`,
+`issue_list`, `issue_update` and `issue_delete` tools: the agent found a
+problem or finished a task, recorded it, and you see it in the UI.
+
 ### Live sessions
 
 ![Chat](docs/screenshots/chat.png)

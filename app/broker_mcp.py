@@ -160,10 +160,118 @@ async def h_telegram_send_file(args, ctx):
     return {"ok": True, "chat_id": chat, "message_id": message_id, "filename": filename}
 
 
+# ---------- issues ----------
+
+ISSUE_STATUSES = ("open", "in_progress", "done")
+
+
+def _issue_project(ctx):
+    pid = ctx.get("project_id")
+    if pid is None:
+        raise ToolError("сессия не привязана к проекту — issue некуда записать")
+    return pid
+
+
+def _tags_in(raw):
+    if isinstance(raw, list):
+        parts = [str(t).strip() for t in raw]
+    else:
+        parts = [t.strip() for t in str(raw or "").split(",")]
+    return [t for t in parts if t][:10]
+
+
+def _issue_out(row):
+    d = dict(row)
+    d["tags"] = [t for t in str(d.get("tags") or "").split(",") if t]
+    return d
+
+
+def h_issue_create(args, ctx):
+    title = (args.get("title") or "").strip()
+    if not title:
+        raise ToolError("title обязателен")
+    status = args.get("status") or "open"
+    if status not in ISSUE_STATUSES:
+        raise ToolError(f"status: один из {', '.join(ISSUE_STATUSES)}")
+    tags = ",".join(_tags_in(args.get("tags")))
+    iid = db.execute(
+        "INSERT INTO issues(project_id, title, description, status, tags, created_by) VALUES(?,?,?,?,?, 'agent')",
+        (_issue_project(ctx), title, args.get("description") or "", status, tags),
+    )
+    return _issue_out(db.query_one("SELECT * FROM issues WHERE id=?", (iid,)))
+
+
+def h_issue_list(args, ctx):
+    pid = _issue_project(ctx)
+    sql = "SELECT * FROM issues WHERE project_id=? AND 1=1"
+    params = [pid]
+    if args.get("status") in ISSUE_STATUSES:
+        sql += " AND status=?"
+        params.append(args["status"])
+    if args.get("tag"):
+        sql += " AND (',' || tags || ',') LIKE ?"
+        params.append(f"%,{str(args['tag']).strip()},%")
+    if args.get("q"):
+        like = f"%{str(args['q']).strip()}%"
+        sql += " AND (title LIKE ? OR description LIKE ?)"
+        params.extend((like, like))
+    sql += " ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END, id DESC"
+    rows = db.query(sql, params)
+    limit = args.get("limit")
+    if limit is not None:
+        try:
+            rows = rows[: max(1, min(int(limit), 100))]
+        except (TypeError, ValueError):
+            pass
+    return [_issue_out(r) for r in rows]
+
+
+def h_issue_update(args, ctx):
+    iid = args.get("id")
+    try:
+        iid = int(iid)
+    except (TypeError, ValueError):
+        raise ToolError("id: целое число")
+    row = db.query_one("SELECT * FROM issues WHERE id=?", (iid,))
+    if not row:
+        raise ToolError(f"issue {iid} не найден")
+    merged = {**row, **args}
+    if str(merged.get("status") or "open") not in ISSUE_STATUSES:
+        raise ToolError(f"status: один из {', '.join(ISSUE_STATUSES)}")
+    tags = ",".join(_tags_in(args.get("tags"))) if args.get("tags") is not None else row["tags"]
+    db.execute(
+        "UPDATE issues SET title=?, description=?, status=?, tags=?, updated_at=datetime('now') WHERE id=?",
+        (
+            (merged.get("title") or "").strip() or row["title"],
+            merged.get("description") or row["description"],
+            merged.get("status") or row["status"],
+            tags,
+            iid,
+        ),
+    )
+    return _issue_out(db.query_one("SELECT * FROM issues WHERE id=?", (iid,)))
+
+
+def h_issue_delete(args, ctx):
+    iid = args.get("id")
+    try:
+        iid = int(iid)
+    except (TypeError, ValueError):
+        raise ToolError("id: целое число")
+    if not db.query_one("SELECT id FROM issues WHERE id=?", (iid,)):
+        raise ToolError(f"issue {iid} не найден")
+    db.execute("DELETE FROM issues WHERE id=?", (iid,))
+    return {"ok": True}
+
+
 HANDLERS = {
     "telegram_info": h_telegram_info,
     "telegram_send": h_telegram_send,
     "telegram_send_file": h_telegram_send_file,
+    "issue_create": h_issue_create,
+    "issue_list": h_issue_list,
+    "issue_update": h_issue_update,
+    "issue_delete": h_issue_delete,
 }
 
 BROKER_TOOLS = [
@@ -197,6 +305,47 @@ BROKER_TOOLS = [
             "chat_id": _prop("string", "id чата (необязателен — по умолчанию чат уведомлений проекта)"),
         },
         [],
+    ),
+    _tool(
+        "issue_create",
+        "Завести issue в трекере задач проекта (бэклог Vibeprod): заголовок, описание, статус, теги. "
+        "Пишите сюда задачи, которые вы нашли или сделали — пользователь увидит их в интерфейсе.",
+        {
+            "title": _prop("string", "название issue (кратко и по делу)"),
+            "description": _prop("string", "детальное описание (контекст, шаги, что сделано/нужно сделать)"),
+            "status": _prop("string", "open | in_progress | done (по умолчанию open)"),
+            "tags": _prop("array", "список тегов, например [\"баг\", \"рефакторинг\"]"),
+        },
+        ["title"],
+    ),
+    _tool(
+        "issue_list",
+        "Список issues проекта с фильтрами: status (open/in_progress/done), tag, q (поиск по названию и описанию).",
+        {
+            "status": _prop("string", "фильтр по статусу (необязательно)"),
+            "tag": _prop("string", "фильтр по тегу (необязательно)"),
+            "q": _prop("string", "поиск по названию и описанию (необязательно)"),
+            "limit": _prop("integer", "сколько вернуть (по умолчанию все, максимум 100)"),
+        },
+        [],
+    ),
+    _tool(
+        "issue_update",
+        "Обновить issue: заголовок, описание, статус, теги (меняются только переданные поля).",
+        {
+            "id": _prop("integer", "id issue"),
+            "title": _prop("string", "новое название"),
+            "description": _prop("string", "новое описание"),
+            "status": _prop("string", "open | in_progress | done"),
+            "tags": _prop("array", "новый список тегов (заменяет старые)"),
+        },
+        ["id"],
+    ),
+    _tool(
+        "issue_delete",
+        "Удалить issue. Требует подтверждения пользователя.",
+        {"id": _prop("integer", "id issue")},
+        ["id"],
     ),
 ]
 

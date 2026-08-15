@@ -25,6 +25,7 @@ from .api import (
     channels,
     files,
     guardian,
+    issues,
     outwebhooks as outwebhooks_api,
     projects,
     providers,
@@ -100,6 +101,7 @@ app.include_router(catalog.router)
 app.include_router(channels.router)
 app.include_router(files.router)
 app.include_router(guardian.router)
+app.include_router(issues.router)
 app.include_router(outwebhooks_api.router)
 app.include_router(projects.router)
 app.include_router(providers.router)

@@ -284,6 +284,76 @@ def test_auth_keeps_machine_endpoints_public(auth_client):
     assert auth_client.post("/api/webhooks/nope/run", json={}).status_code == 404  # не 401 от middleware
 
 
+# ---------- issues ----------
+
+
+def test_issues_crud_and_filters(client):
+    r = client.post("/api/issues", json={"title": "Упал деплой", "description": "не поднимается воркер", "tags": ["баг", "деплой"], "project_id": 1})
+    assert r.status_code == 200, r.text
+    i1 = r.json()
+    assert i1["status"] == "open"
+    assert i1["tags"] == ["баг", "деплой"]
+    assert i1["created_by"] == "manual"
+
+    client.post("/api/issues", json={"title": "Рефакторинг стримера", "status": "in_progress", "tags": ["рефакторинг"], "project_id": 1})
+    client.post("/api/issues", json={"title": "Релизная заметка", "status": "done", "project_id": 2})
+
+    # проект + статус
+    assert [i["title"] for i in client.get("/api/issues?project_id=1&status=open").json()] == ["Упал деплой"]
+    assert [i["title"] for i in client.get("/api/issues?project_id=1&status=in_progress").json()] == ["Рефакторинг стримера"]
+    # тег
+    assert [i["title"] for i in client.get("/api/issues?project_id=1&tag=баг").json()] == ["Упал деплой"]
+    # поиск по названию и описанию
+    assert [i["title"] for i in client.get("/api/issues?project_id=1&q=воркер").json()] == ["Упал деплой"]
+    assert [i["title"] for i in client.get("/api/issues?project_id=1&q=стримера").json()] == ["Рефакторинг стримера"]
+    assert client.get("/api/issues?project_id=1&q=неттакого").json() == []
+
+    # обновление
+    r = client.put(f"/api/issues/{i1['id']}", json={"status": "done", "tags": ["баг"]})
+    assert r.json()["status"] == "done" and r.json()["tags"] == ["баг"]
+    # неизменённые поля остаются
+    assert r.json()["title"] == "Упал деплой"
+
+    # валидация
+    assert client.post("/api/issues", json={"title": ""}).status_code == 400
+    assert client.post("/api/issues", json={"title": "x", "status": "wat"}).status_code == 400
+    assert client.put(f"/api/issues/{i1['id']}", json={"status": "wat"}).status_code == 400
+    assert client.put("/api/issues/999999", json={"title": "x"}).status_code == 404
+
+    # удаление
+    assert client.delete(f"/api/issues/{i1['id']}").json() == {"ok": True}
+    assert client.get("/api/issues?project_id=1&q=деплой").json() == []
+
+
+def test_broker_issue_tools(client, monkeypatch):
+    import asyncio
+    import json
+
+    from app import broker_mcp
+
+    ctx = {"session_id": "sess1", "project_id": 1}
+
+    r = asyncio.run(broker_mcp.call_tool("issue_create", {"title": "От агента", "tags": ["авто"]}, {}))
+    assert r["isError"] and "не привязана" in r["content"][0]["text"]
+
+    r = asyncio.run(broker_mcp.call_tool("issue_create", {"title": "От агента", "description": "нашёл баг", "tags": ["авто"]}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    created = json.loads(r["content"][0]["text"])
+    assert created["created_by"] == "agent" and created["tags"] == ["авто"]
+
+    r = asyncio.run(broker_mcp.call_tool("issue_list", {"q": "баг"}, ctx))
+    listed = json.loads(r["content"][0]["text"])
+    assert len(listed) == 1 and listed[0]["title"] == "От агента"
+
+    r = asyncio.run(broker_mcp.call_tool("issue_update", {"id": created["id"], "status": "in_progress"}, ctx))
+    assert json.loads(r["content"][0]["text"])["status"] == "in_progress"
+
+    r = asyncio.run(broker_mcp.call_tool("issue_delete", {"id": created["id"]}, ctx))
+    assert not r["isError"]
+    r = asyncio.run(broker_mcp.call_tool("issue_delete", {"id": created["id"]}, ctx))
+    assert r["isError"] and "не найден" in r["content"][0]["text"]
+
+
 # ---------- уведомления в каналы ----------
 
 

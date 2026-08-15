@@ -197,6 +197,7 @@ function setProjectMenu(open) {
 async function refreshCurrentView() {
   if (currentView === 'home') renderHome();
   else if (currentView === 'sessions') renderSessions();
+  else if (currentView === 'issues') renderIssues();
   else if (currentView === 'agents') renderAgents();
   else if (currentView === 'providers') renderProviders();
   else if (currentView === 'files') renderFiles();
@@ -219,6 +220,7 @@ function showView(view, arg) {
   window.history.pushState({ view, arg }, '', `#${view}${arg ? '/' + arg : ''}`);
   if (view === 'home') renderHome();
   else if (view === 'sessions') renderSessions(arg);
+  else if (view === 'issues') renderIssues();
   else if (view === 'agents') renderAgents();
   else if (view === 'providers') renderProviders();
   else if (view === 'files') renderFiles();
@@ -1660,6 +1662,167 @@ function skillModal(s) {
       else await api.post('/api/skills', f);
       close();
       await refreshSkills();
+    });
+}
+
+/* ---------- issues ---------- */
+const ISSUE_STATUSES = {
+  open: { label: 'открыт', cls: 'bg-sky-900/60 text-sky-300 border-sky-800' },
+  in_progress: { label: 'в работе', cls: 'bg-purple-900/60 text-purple-300 border-purple-800' },
+  done: { label: 'готово', cls: 'bg-emerald-900/60 text-emerald-300 border-emerald-800' },
+};
+let issuesCache = [];
+const issueFilters = { q: '', tag: '', tab: 'open' };
+
+async function renderIssues() {
+  const main = $('#main');
+  main.innerHTML = `
+    <div class="h-full flex flex-col">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+        <div>
+          <div class="text-lg font-semibold">Issues</div>
+          <div class="text-xs text-neutral-500">Трекер задач проекта: агенты заводят сюда issues инструментами vibeprod (issue_create), вы видите их здесь.</div>
+        </div>
+        <button id="new-issue" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый issue</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 px-6 py-3 border-b border-neutral-800">
+        <input id="issue-search" placeholder="Поиск по названию, описанию, тегам…" value="${esc(issueFilters.q)}"
+          class="w-72 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-sky-600">
+        <select id="issue-tag-filter" class="bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm">
+          <option value="">все теги</option>
+          ${[...new Set(issuesCache.flatMap(i => i.tags || []))].sort().map(t => `<option value="${esc(t)}" ${issueFilters.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select>
+        <span id="issue-count" class="text-xs text-neutral-500"></span>
+      </div>
+      <div class="flex items-center gap-1 px-6 pt-3 border-b border-neutral-800">
+        <button id="issue-tab-open" class="issue-tab px-4 py-2 rounded-t-lg text-sm font-medium border-b-2">Открытые <span id="issue-tab-open-count" class="text-neutral-500 font-normal"></span></button>
+        <button id="issue-tab-closed" class="issue-tab px-4 py-2 rounded-t-lg text-sm font-medium border-b-2">Закрытые <span id="issue-tab-closed-count" class="text-neutral-500 font-normal"></span></button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6" id="issues-list"></div>
+    </div>`;
+  $('#new-issue').onclick = () => issueModal(null);
+  $('#issue-search').oninput = (e) => { issueFilters.q = e.target.value.trim(); renderIssuesList(); };
+  $('#issue-tag-filter').onchange = (e) => { issueFilters.tag = e.target.value; renderIssuesList(); };
+  const setTab = (tab) => {
+    issueFilters.tab = tab;
+    $$('.issue-tab').forEach(b => {
+      const active = (b.id === `issue-tab-${tab}`);
+      b.classList.toggle('text-white', active);
+      b.classList.toggle('text-neutral-500', !active);
+      b.classList.toggle('border-sky-500', active);
+      b.classList.toggle('border-transparent', !active);
+      b.classList.toggle('hover:text-neutral-200', !active);
+    });
+    renderIssuesList();
+  };
+  $('#issue-tab-open').onclick = () => setTab('open');
+  $('#issue-tab-closed').onclick = () => setTab('closed');
+  setTab(issueFilters.tab);
+  await refreshIssues();
+}
+
+async function refreshIssues() {
+  try { issuesCache = await api.get('/api/issues' + projQuery()); } catch (e) { return; }
+  const openCount = issuesCache.filter(i => i.status !== 'done').length;
+  const closedCount = issuesCache.length - openCount;
+  const oc = $('#issue-tab-open-count');
+  const cc = $('#issue-tab-closed-count');
+  if (oc) oc.textContent = openCount ? `· ${openCount}` : '';
+  if (cc) cc.textContent = closedCount ? `· ${closedCount}` : '';
+  renderIssuesList();
+  const tagSel = $('#issue-tag-filter');
+  if (tagSel) {
+    const tags = [...new Set(issuesCache.flatMap(i => i.tags || []))].sort();
+    tagSel.innerHTML = `<option value="">все теги</option>` + tags.map(t => `<option value="${esc(t)}" ${issueFilters.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  }
+}
+
+function renderIssuesList() {
+  const el = $('#issues-list');
+  if (!el) return;
+  const q = issueFilters.q.toLowerCase();
+  const rows = issuesCache.filter(i => {
+    if (issueFilters.tab === 'open' && i.status === 'done') return false;
+    if (issueFilters.tab === 'closed' && i.status !== 'done') return false;
+    if (issueFilters.tag && !(i.tags || []).includes(issueFilters.tag)) return false;
+    if (q) {
+      const hay = `${i.title} ${i.description || ''} ${(i.tags || []).join(' ')}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const count = $('#issue-count');
+  if (count) count.textContent = `показано ${rows.length} из ${issuesCache.length}`;
+  if (!rows.length) {
+    el.innerHTML = `<div class="text-neutral-500 text-sm">Issues нет. Создайте вручную или попросите агента: инструменты issue_create / issue_list / issue_update.</div>`;
+    return;
+  }
+  el.innerHTML = rows.map(i => {
+    const st = ISSUE_STATUSES[i.status] || ISSUE_STATUSES.open;
+    return `
+    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-4 mb-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="px-2 py-0.5 rounded border text-xs ${st.cls}">${st.label}</span>
+            <span class="font-semibold">${esc(i.title)}</span>
+            ${i.created_by === 'agent' ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400" title="заведено агентом">агент</span>' : ''}
+          </div>
+          <div class="text-xs text-neutral-500 mt-1">#${i.id} · ${esc(i.created_at || '')}${i.updated_at && i.updated_at !== i.created_at ? ` · изменено ${esc(i.updated_at)}` : ''}</div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <select class="issue-status bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs" data-id="${i.id}">
+            ${Object.entries(ISSUE_STATUSES).map(([v, s]) => `<option value="${v}" ${i.status === v ? 'selected' : ''}>${s.label}</option>`).join('')}
+          </select>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs" data-id="${i.id}">изменить</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950 text-xs" data-id="${i.id}">удалить</button>
+        </div>
+      </div>
+      ${i.description ? `<details class="mt-2"><summary class="text-xs text-neutral-400 cursor-pointer select-none">описание</summary><div class="md mt-2 text-sm leading-relaxed whitespace-pre-wrap">${esc(i.description)}</div></details>` : ''}
+      ${(i.tags || []).length ? `<div class="flex flex-wrap gap-1.5 mt-2">${i.tags.map(t => `<button class="tag-chip px-2 py-0.5 rounded-full bg-neutral-800 text-xs text-neutral-300 hover:bg-neutral-700" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+  $$('.issue-status', el).forEach(sel => sel.onchange = async () => {
+    try {
+      await api.put(`/api/issues/${sel.dataset.id}`, { status: sel.value });
+      toast('Статус обновлён', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+    await refreshIssues();
+  });
+  $$('.tag-chip', el).forEach(chip => chip.onclick = () => {
+    issueFilters.tag = chip.dataset.tag;
+    const sel = $('#issue-tag-filter');
+    if (sel) sel.value = issueFilters.tag;
+    renderIssuesList();
+  });
+  $$('.edit', el).forEach(b => b.onclick = () => issueModal(issuesCache.find(i => i.id === +b.dataset.id)));
+  $$('.del', el).forEach(b => b.onclick = async () => {
+    if (!confirm('Удалить issue?')) return;
+    await api.del(`/api/issues/${b.dataset.id}`);
+    await refreshIssues();
+  });
+}
+
+function issueModal(row) {
+  const isEdit = !!row;
+  row = row || { title: '', description: '', status: 'open', tags: [] };
+  const projectSelect = currentProject ? '' : formSelect('Проект', 'project_id', projectsCache.map(p => ({ v: p.id, l: p.name })), currentProject);
+  openModal(isEdit ? `Issue #${row.id}` : 'Новый issue', `
+    ${formInput('Название', 'title', row.title, 'Коротко о задаче')}
+    ${formArea('Описание', 'description', row.description, 6, 'Контекст, шаги, ожидания…')}
+    ${formSelect('Статус', 'status', Object.entries(ISSUE_STATUSES).map(([v, s]) => ({ v, l: s.label })), row.status)}
+    ${formInput('Теги (через запятую)', 'tags', (row.tags || []).join(', '), 'баг, рефакторинг')}
+    ${projectSelect}`, async (close) => {
+      const f = readForm($('#modal-body'));
+      if (!f.title.trim()) throw new Error('Название обязательно');
+      const payload = { title: f.title, description: f.description, status: f.status, tags: f.tags.split(',').map(t => t.trim()).filter(Boolean) };
+      if (isEdit) await api.put(`/api/issues/${row.id}`, payload);
+      else {
+        if (currentProject) payload.project_id = currentProject;
+        await api.post('/api/issues', payload);
+      }
+      close();
+      await refreshIssues();
     });
 }
 
