@@ -1,71 +1,72 @@
 # Vibeprod
 
-**A self-hosted control plane for [opencode](https://github.com/sst/opencode) agents.**
-Every session gets its own Docker container. Runs on your machine, with your API keys, under your rules.
+**Самостоятельно размещаемая панель управления агентами [opencode](https://github.com/sst/opencode).**
+Каждый сеанс — свой docker-контейнер. Работает на вашей машине, на ваших ключах, по вашим правилам.
 
 [![CI](https://github.com/katskov-dev/vibeprod/actions/workflows/ci.yml/badge.svg)](https://github.com/katskov-dev/vibeprod/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-[Русская версия](README.ru.md) · [Landing page](https://katskov-dev.github.io/vibeprod/)
+[English version](README.en.md) · [Лендинг](https://katskov-dev.github.io/vibeprod/)
 
-![Sessions](docs/screenshots/sessions.png)
+![Сессии](docs/screenshots/sessions.png)
 
 ---
 
-## What this is
+## Что это
 
-opencode is an excellent terminal coding agent. Vibeprod is the layer around it
-that a *team* needs: a web UI over many sessions at once, agents defined once
-and reused, cron schedules, inbound and outbound webhooks, a Telegram channel,
-and a reusable MCP catalog — all in one FastAPI process with a SQLite file next
-to it.
+opencode — отличный терминальный агент. Vibeprod — слой вокруг него, который
+нужен, когда агентов становится больше одного: веб-интерфейс над всеми сеансами
+сразу, агенты, описанные один раз и переиспользуемые, cron-расписания, входящие
+и исходящие вебхуки, канал в Telegram и общий каталог MCP. Всё это — один
+процесс FastAPI и файл sqlite рядом с ним.
 
-The whole thing is roughly 6,000 lines of Python plus one dependency-free
-frontend. There is no build step, no message queue, no Kubernetes.
+Внутри примерно 6 000 строк питона и фронтенд без единой зависимости. Ни сборки,
+ни очереди сообщений, ни кубернетеса.
 
-**What makes it different from the hosted agent products:** the schedules,
-webhooks and chat channels are *built in and self-hosted*. You do not need a
-cloud tier to have an agent that runs every weekday at 09:00 and posts the
-result to Telegram — and no code or API key ever leaves your machine.
+**Чем отличается от облачных агентских продуктов:** расписания, вебхуки и
+мессенджер-каналы здесь встроены и работают локально. Чтобы агент запускался в
+09:00 по будням и присылал результат в Telegram, не нужен облачный тариф — и ни
+код, ни ключи не покидают вашу машину.
 
 > [!WARNING]
-> **The broker has no authentication and it drives the Docker daemon.** Anyone
-> who can reach its port can execute code as root on the host. Compose binds it
-> to `127.0.0.1` for exactly this reason. Read [SECURITY.md](SECURITY.md) before
-> putting it on a server.
+> **У брокера нет аутентификации, и он управляет докер-демоном.** Любой, кто
+> дотянется до его порта, может выполнить код с правами root на хосте. Именно
+> поэтому compose публикует порт только на `127.0.0.1`. Прочитайте
+> [SECURITY.md](SECURITY.md), прежде чем ставить это на сервер.
 
-## Quick start
+## Быстрый старт
 
-Requires Docker and Python 3.11+ (or just Docker).
+Нужен docker и Python 3.11+ (или только docker).
 
 ```bash
 git clone https://github.com/katskov-dev/vibeprod.git
 cd vibeprod
-cp .env.example .env     # add at least one provider key
+cp .env.example .env     # впишите хотя бы один ключ провайдера
 ./run.sh                 # → http://localhost:8000
 ```
 
-Or in a container:
+Или в контейнере:
 
 ```bash
 docker compose up --build
 ```
 
-The first start pulls the pinned `ghcr.io/anomalyco/opencode` image (version
-fixed in compose.yaml and worker/Dockerfile) and builds the worker image on
-top of it — opencode plus a light coding-agent toolkit: python3/pip, curl, jq,
-git, ripgrep, bash, make, zip, openssh (no compilers, to keep the image lean).
+Первый запуск подтягивает запиненный образ `ghcr.io/anomalyco/opencode`
+(версия зафиксирована в compose.yaml и worker/Dockerfile) и собирает поверх
+него образ воркера — opencode плюс лёгкий набор для кодинг-агентов:
+python3/pip, curl, jq, git, ripgrep, bash, make, zip, openssh (без
+компиляторов, чтобы не раздувать образ).
 
-Open the UI, describe what you need on the home screen, and the **operator
-agent** will set the project up for you — it creates agents, attaches MCP
-servers and skills, adds providers, webhooks and schedules, all through a
-dedicated MCP server inside the broker.
+Откройте интерфейс, опишите задачу на главном экране — и **агент-оператор**
+настроит проект сам: создаст агентов, подключит MCP-серверы и скиллы, добавит
+провайдеров, вебхуки и расписания. Делает он это через отдельный MCP-сервер,
+живущий внутри брокера.
 
-## Deploy
+## Деплой
 
-Server requirements: Linux, Docker + Docker Compose v2, git, `curl`. Deploy
-from the repository — so fixes can be rolled back and merged back upstream:
+Требования к серверу: Linux, docker + docker compose v2, git, `curl`.
+Ставьте из репозитория — так фиксы можно откатить и заносить обратно в репо:
 
 ```bash
 git clone https://github.com/katskov-dev/vibeprod.git /srv/vibeprod
@@ -73,199 +74,214 @@ cd /srv/vibeprod
 bash scripts/setup.sh
 ```
 
-`setup.sh` checks Docker, generates `.env` with random MinIO and UI passwords,
-asks for LLM keys (at least one), runs `docker compose up -d --build` and
-prints the URL and credentials. Then verify the whole deployment:
+`setup.sh` проверяет docker, генерирует `.env` со случайными паролями MinIO и
+UI, спрашивает LLM-ключи (нужен хотя бы один), поднимает
+`docker compose up -d --build` и печатает URL и креды. После этого проверьте
+деплой целиком:
 
 ```bash
-bash scripts/smoke.sh    # health → login → session → worker → LLM reply → status
+bash scripts/smoke.sh    # health → логин → сессия → воркер → ответ LLM → статус
 ```
 
-Mind the networking: the broker runs with `network_mode: host` in compose, and
-this is **required**. The broker reaches workers at `127.0.0.1:<host-port>`,
-but inside a bridge network `127.0.0.1` is the broker's own loopback, not the
-host — every session fails with "opencode serve не поднялся". For the same
-reason (no container DNS in host mode) MinIO is published on the host loopback
-(`127.0.0.1:9000`). With host networking, the broker's port is just a uvicorn
-bind: `setup.sh` enables `VIBEPROD_BIND=0.0.0.0` together with UI auth — read
-[SECURITY.md](SECURITY.md) first (without auth it's a root shell on the host).
-Check readiness with `docker compose ps` (both services have healthchecks) or
+Важно про сеть: брокер в compose работает в `network_mode: host` — это
+**обязательно**. Брокер ходит в воркеры по `127.0.0.1:<host-port>`, а внутри
+bridge-сети `127.0.0.1` — это loopback самого брокера, а не хоста: все сессии
+падают с «opencode serve не поднялся». По той же причине (в host-режиме нет DNS
+контейнеров) MinIO публикуется на loopback хоста (`127.0.0.1:9000`). Порт
+брокера при host-сети — это просто bind uvicorn'а: `setup.sh` включает
+`VIBEPROD_BIND=0.0.0.0` вместе с авторизацией UI (прочитайте
+[SECURITY.md](SECURITY.md) — без авторизации это root-шелл на хосте). Готовность
+сервисов: `docker compose ps` (у обоих healthcheck) или
 `docker compose up --wait`.
 
-Updating: `cd /srv/vibeprod && git pull && docker compose up -d --build`
-(the worker image rebuilds automatically on the next session when
-`worker/Dockerfile` changed).
+Обновление: `cd /srv/vibeprod && git pull && docker compose up -d --build`
+(образ воркера пересоберётся автоматически на следующей сессии, если изменился
+`worker/Dockerfile`).
 
-### Common deployment errors
+### Типовые ошибки деплоя
 
-| Symptom | Cause | Fix |
+| Симптом | Причина | Лечение |
 |---|---|---|
-| Sessions fail with "opencode serve не поднялся" | Broker can't reach the worker port on `127.0.0.1` — `network_mode: host` missing | Use compose.yaml as-is (`network_mode: host` is mandatory); `docker compose config` shows what actually deploys |
-| Probe containers fail with "bind source path does not exist" | `VIBEPROD_HOST_DATA_DIR` not set: the Docker daemon resolves bind sources on the host, not inside the broker | Compose sets `VIBEPROD_HOST_DATA_DIR=${PWD}/data`; outside compose, set it explicitly |
-| Provider catalog empty / "Check" fails (502) | MinIO or Docker unreachable from the broker | `curl http://127.0.0.1:9000/minio/health/live` on the host; `VIBEPROD_S3_ENDPOINT` must be `http://127.0.0.1:9000` (compose default) |
-| `docker compose ps` shows broker unhealthy | Docker daemon or MinIO unreachable from the broker | `docker info` on the host; verify the `/var/run/docker.sock` mount; `curl …/api/health` shows the `docker`/`s3` flags |
-| Sessions fail after an update, but used to work | LLM keys missing | `/api/health` only covers infrastructure; keys live in `.env`/UI. `scripts/smoke.sh` without `SMOKE_SKIP_LLM=1` catches this |
+| Сессии падают с «opencode serve не поднялся» | Брокер не видит порт воркера на `127.0.0.1` — нет `network_mode: host` | Используйте compose.yaml как есть (`network_mode: host` обязателен); `docker compose config` покажет, что реально деплоится |
+| Probe-контейнеры падают с «bind source path does not exist» | Не задан `VIBEPROD_HOST_DATA_DIR`: docker-демон резолвит source bind-mount на хосте, а не внутри брокера | compose подставляет `VIBEPROD_HOST_DATA_DIR=${PWD}/data`; вне compose задайте явно |
+| Каталог провайдеров пуст / «Проверить» падает (502) | MinIO или docker недоступны из брокера | `curl http://127.0.0.1:9000/minio/health/live` на хосте; `VIBEPROD_S3_ENDPOINT` должен быть `http://127.0.0.1:9000` (дефолт compose) |
+| `docker compose ps` показывает брокер unhealthy | Из брокера не виден docker-демон или MinIO | `docker info` на хосте; проверьте mount `/var/run/docker.sock`; `curl …/api/health` покажет флаги `docker`/`s3` |
+| Сессии падают, хотя раньше всё работало | Нет LLM-ключей | `/api/health` проверяет только инфраструктуру; ключи — в `.env`/UI. `scripts/smoke.sh` без `SMOKE_SKIP_LLM=1` это отловит |
 
-## How it works
+## Как устроено
 
 ```
-Browser ⇄ WebSocket ⇄ FastAPI broker (SQLite)
+Браузер ⇄ WebSocket ⇄ FastAPI (брокер, sqlite)
                           │ Docker SDK
                           ▼
-     one `opencode serve` container per session
-     (isolated workspace, volume for history,
-      SSE /event relayed into the WebSocket)
+     контейнер `opencode serve` на каждый сеанс
+     (изолированный workspace, том для истории,
+      SSE /event ретранслируется в WebSocket)
 ```
 
-A **session** is a container plus an opencode session. Conversation history
-lives in a Docker volume (`vibeprod-oc-<id>`), so a worker can be restarted
-without losing the thread. After the idle TTL the container is killed and the
-session is marked `expired`; its data stays in the database until you delete it.
+**Сеанс** = контейнер + сессия opencode. История диалога лежит в docker-томе
+`vibeprod-oc-<id>`, поэтому воркер можно перезапустить, не потеряв переписку. По
+TTL простоя контейнер убивается, сессия помечается `expired` — данные остаются в
+базе до удаления.
 
-Each worker listens on a random host port behind HTTP basic auth with a
-per-session random token.
+Каждый воркер слушает случайный порт хоста под HTTP basic auth со случайным
+токеном на сеанс.
 
-## Features
+## Возможности
 
-### Agents, skills and MCP
+### Агенты, скиллы и MCP
 
-![Agents](docs/screenshots/agents.png)
+![Агенты](docs/screenshots/agents.png)
 
-Agents are rows in SQLite — model, mode, temperature, permissions, system
-prompt — plus attached MCP servers and skills. When a session starts,
-`render.py` materialises a native `opencode.json`, `.opencode/agent/*.md` and
-`.opencode/skills/*/SKILL.md` into the worker's workspace. Nothing proprietary:
-what the worker sees is stock opencode configuration.
+Агенты — строки в sqlite: модель, mode, temperature, permissions, системный
+промпт, плюс привязанные MCP-серверы и скиллы. При старте сеанса `render.py`
+собирает нативный `opencode.json`, `.opencode/agent/*.md` и
+`.opencode/skills/*/SKILL.md` в workspace воркера. Никакого проприетарного
+формата: воркер видит обычный конфиг opencode.
 
-![MCP catalog](docs/screenshots/mcp-catalog.png)
+![Каталог MCP](docs/screenshots/mcp-catalog.png)
 
-The **MCP catalog** holds reusable servers of two kinds. *Generic* ones are
-ordinary local (command) or remote (URL) servers. *Service* ones are Docker
-containers on the `vibeprod-mcp` network — the bundled **playwright** service
-gives any agent a real browser, and starts automatically when a session needs it.
-Attaching one to an agent is a single click.
+**Каталог MCP** хранит переиспользуемые серверы двух видов. *generic* — обычные
+local (команда) или remote (URL). *service* — docker-контейнеры в сети
+`vibeprod-mcp`; встроенный **playwright** даёт любому агенту настоящий браузер и
+поднимается автоматически, когда нужен сессии. Добавление к агенту — одна кнопка.
 
-### Automation: schedules, webhooks, Telegram
+### Файлы проектов (MinIO)
 
-![Schedules](docs/screenshots/schedules.png)
+У каждого проекта своё хранилище файлов в **MinIO** (раздел «Файлы» в меню).
+Загружать файлы можно из интерфейса, а агенты делают это через MCP **files** из
+каталога (подключение — одной кнопкой): инструмент `upload_file` заливает
+локальный файл воркера в проект и возвращает публичную ссылку. Вместе со
+скиллом **screenshot-to-files** и playwright это даёт флоу «скриншот →
+файлы проекта → ссылка в ответе».
 
-**Schedules** are cron expressions with a timezone. Each firing creates an
-ordinary session tagged `schedule`, and the outcome is recorded in
-`schedule_runs`.
+MinIO поднимается compose: `docker compose up -d minio` (порты 9000/9001 — только
+loopback). Доступ брокера настраивается через `VIBEPROD_S3_ENDPOINT`,
+`VIBEPROD_S3_ACCESS_KEY`, `VIBEPROD_S3_SECRET_KEY` (в compose подставляются
+автоматически). Ссылки на файлы для агентов строятся от `VIBEPROD_BROKER_URL`
+(по умолчанию `http://host.docker.internal:8000`).
 
-**Webhooks** let external systems start an agent:
+### Автоматизация: расписания, вебхуки, Telegram
+
+![Расписания](docs/screenshots/schedules.png)
+
+**Расписания** — cron-выражения с таймзоной. Каждый запуск порождает обычную
+сессию с меткой «расписание», результат пишется в `schedule_runs`.
+
+**Вебхуки** позволяют запускать агента из внешних систем:
 
 ```bash
 curl -X POST http://localhost:8000/api/webhooks/pr-review/run \
      -H 'X-Webhook-Secret: ...' \
      -H 'Content-Type: application/json' \
-     -d '{"prompt": "Review the diff in PR #482"}'
+     -d '{"prompt": "Проверь diff в PR #482"}'
 ```
 
-Add `?wait=<seconds>` to block until the run finishes and get the result in the
-response instead of polling.
+`?wait=<сек>` — дождаться завершения и получить результат прямо в ответе, вместо
+опроса.
 
-**Outgoing webhooks** push broker events to your systems (Automation →
-"Outgoing"). Subscribe a URL to events like `session.completed`,
-`session.failed`, `schedule.fired` or `webhook.received` and the broker will
-POST to it:
+**Исходящие вебхуки** шлют события брокера в ваши системы (Автоматизация →
+«Исходящие»). Подпишите URL на события вроде `session.completed`,
+`session.failed`, `schedule.fired` или `webhook.received` — брокер будет
+присылать на него POST:
 
 ```json
 {
   "event": "session.completed",
   "timestamp": "2026-08-15T09:00:00Z",
-  "data": {"id": "...", "title": "Review PR #482", "status": "completed", "result_text": "…"}
+  "data": {"id": "...", "title": "Проверка PR #482", "status": "completed", "result_text": "…"}
 }
 ```
 
-Requests carry `X-Vibeprod-Event` and `X-Vibeprod-Delivery` headers and, if you
-set a secret, an HMAC-SHA256 signature in `X-Vibeprod-Signature: sha256=<hex>`
-over the raw body. Deliveries retry with backoff (1s → 5s → 15s → 60s → 300s)
-on network errors, 429 and 5xx; every attempt lands in the per-webhook delivery
-log with the response code and error.
+Запросы несут заголовки `X-Vibeprod-Event` и `X-Vibeprod-Delivery`, а при
+заданном секрете — подпись `X-Vibeprod-Signature: sha256=<hex>` (HMAC-SHA256 от
+сырого тела). Доставка повторяется с бэкoффом (1с → 5с → 15с → 60с → 300с) при
+сетевых ошибках, 429 и 5xx; каждая попытка попадает в журнал доставок с кодом
+ответа и ошибкой.
 
-![Channels](docs/screenshots/channels.png)
+![Каналы](docs/screenshots/channels.png)
 
-**Telegram** runs inside the broker on long polling — no extra dependency, no
-public URL. Configure the bot token and allowed user IDs in the UI. The first
-message opens a session, later ones continue it, and the agent's reply is
-streamed by editing the bot's message in place. Commands: `/agents`, `/agent N`,
-`/new`, `/abort`, `/status`, `/link`, `/chatid`. Set a notification chat (see
-`/chatid`) to receive summaries of scheduled and webhook runs — on every run or
-only on errors.
+**Telegram** живёт внутри брокера на long-polling — без новых зависимостей и без
+публичного URL. Токен бота и разрешённые user id настраиваются в интерфейсе.
+Первое сообщение открывает сессию, следующие продолжают её, ответ агента
+дописывается правками в сообщение бота. Команды: `/agents`, `/agent N`, `/new`,
+`/abort`, `/status`, `/link`, `/chatid`. Если задать чат для уведомлений (id
+сообщит бот по команде `/chatid`), туда будут приходить сводки о завершении
+запусков по расписанию и вебхукам — на каждый запуск или только при ошибке.
 
-Every agent also gets built-in Vibeprod tools (a `vibeprod` remote-MCP inside
-each session): `telegram_send` — message the user on Telegram,
-`telegram_send_file` — send a file (from the worker workspace or as text),
-`telegram_info` — channel status. Handy for scheduled runs: the agent finishes a
-job and delivers the result and files to the chat itself.
+Кроме того, у **каждого агента** есть встроенные инструменты Vibeprod
+(remote-MCP `vibeprod` внутри каждой сессии): `telegram_send` — написать
+пользователю в Telegram, `telegram_send_file` — прислать файл (из workspace
+воркера или текстом), `telegram_info` — статус канала. Удобно для уведомлений
+из расписаний: агент отработал задание и сам отправил результат и файлы в чат.
 
-### Live sessions
+### Живые сессии
 
-![Chat](docs/screenshots/chat.png)
+![Чат](docs/screenshots/chat.png)
 
-The broker consumes the worker's SSE stream and fans it out over
-`WS /ws/sessions/{id}`. Tool calls, reasoning blocks and todo lists render as
-they happen; compact events go to SQLite and the full transcript is stored when
-the session goes idle.
+Брокер читает SSE воркера и рассылает в `WS /ws/sessions/{id}`. Вызовы
+инструментов, блоки рассуждений и списки задач появляются по мере выполнения;
+компактные события пишутся в sqlite, полный транскрипт сохраняется по
+`session.idle`.
 
-### Providers
+### Провайдеры
 
-![Providers](docs/screenshots/providers.png)
+![Провайдеры](docs/screenshots/providers.png)
 
-Provider keys are managed in the UI and take precedence over `*_API_KEY` in the
-broker's environment. **Check** spins up a short-lived probe container with the
-same opencode image and your key, verifies the provider registers, lists its
-models and makes a real generation request — the same path a worker will take.
+Ключи провайдеров задаются в интерфейсе и имеют приоритет над `*_API_KEY` из
+окружения брокера. Кнопка **«Проверить»** поднимает короткоживущий
+probe-контейнер с тем же образом opencode и вашим ключом, проверяет регистрацию
+провайдера, список моделей и делает настоящий тест-запрос — ровно то, что
+произойдёт в воркере.
 
-## Comparison
+## Сравнение с аналогами
 
-Honest positioning: Vibeprod is a small, self-hosted project, not a competitor to
-funded platforms on breadth or maturity. It wins on one axis — *self-hosted
-automation without a cloud tier* — and loses on another — *it has no
-authentication or multi-user support at all*.
+Честно о позиционировании: Vibeprod — небольшой self-hosted проект, а не
+конкурент профинансированным платформам по широте и зрелости. Он выигрывает по
+одной оси — *автоматизация на своём железе без облачного тарифа* — и проигрывает
+по другой: *здесь вообще нет аутентификации и многопользовательского режима*.
 
 | | **Vibeprod** | [OpenHands](https://github.com/OpenHands/OpenHands) | [opencode](https://github.com/sst/opencode) | [Goose](https://github.com/block/goose) | Devin · Jules · Codex cloud · Cursor agents |
 |---|---|---|---|---|---|
-| License | MIT | MIT | MIT | Apache-2.0 | Proprietary |
-| Self-hosted | Only option | Yes (+ managed cloud) | Yes | Yes | No |
-| Web UI over many sessions | ✅ | ✅ | ❌ (TUI + serve API) | ❌ (desktop/CLI) | ✅ vendor-hosted |
-| Container per session | ✅ | ✅ | ❌ runs on host | ❌ runs on host | ✅ vendor sandbox |
-| Cron schedules | ✅ built in | ☁️ cloud tier | ❌ | ❌ | ⚠️ varies |
-| Inbound webhooks | ✅ built in | ☁️ cloud tier | ❌ | ❌ | ⚠️ varies |
-| Outbound webhooks | ✅ built in | ⚠️ varies | ❌ | ❌ | ⚠️ varies |
-| Chat channel (Telegram) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| MCP support | ✅ + shared catalog | ✅ | ✅ | ✅ | ⚠️ varies |
-| Agent that configures the platform | ✅ guardian MCP | ❌ | ❌ | ❌ | ❌ |
-| Bring your own key | ✅ | ✅ | ✅ | ✅ | ❌ subscription |
-| Git / pull-request workflow | ⚠️ via agent + git | ✅ first-class | ✅ first-class | ✅ | ✅ first-class |
-| Auth, multi-user, RBAC | ❌ **none** | ✅ enterprise | n/a | n/a | ✅ |
-| Maturity | 🌱 early | Large, funded | Very large | Linux Foundation | Commercial |
+| Лицензия | MIT | MIT | MIT | Apache-2.0 | Проприетарные |
+| Self-hosted | Единственный вариант | Да (+ облако) | Да | Да | Нет |
+| Веб-интерфейс над многими сеансами | ✅ | ✅ | ❌ (TUI + serve API) | ❌ (десктоп/CLI) | ✅ у вендора |
+| Контейнер на сеанс | ✅ | ✅ | ❌ на хосте | ❌ на хосте | ✅ песочница вендора |
+| Cron-расписания | ✅ встроены | ☁️ облачный тариф | ❌ | ❌ | ⚠️ по-разному |
+| Входящие вебхуки | ✅ встроены | ☁️ облачный тариф | ❌ | ❌ | ⚠️ по-разному |
+| Исходящие вебхуки | ✅ встроены | ⚠️ по-разному | ❌ | ❌ | ⚠️ по-разному |
+| Канал в мессенджере (Telegram) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Поддержка MCP | ✅ + общий каталог | ✅ | ✅ | ✅ | ⚠️ по-разному |
+| Агент настраивает саму платформу | ✅ guardian MCP | ❌ | ❌ | ❌ | ❌ |
+| Свои ключи (BYOK) | ✅ | ✅ | ✅ | ✅ | ❌ подписка |
+| Работа с git и пул-реквестами | ⚠️ через агента и git | ✅ из коробки | ✅ из коробки | ✅ | ✅ из коробки |
+| Аутентификация, многопользовательский режим, RBAC | ❌ **нет** | ✅ enterprise | — | — | ✅ |
+| Зрелость | 🌱 ранняя | Крупный, с инвестициями | Очень крупный | Linux Foundation | Коммерческие |
 
-**Pick Vibeprod if** you want agents on your own hardware, triggered by cron,
-webhooks and chat, with per-session isolation and keys that never leave the box.
+**Берите Vibeprod, если** нужны агенты на своём железе, запускаемые по cron,
+вебхукам и из чата, с изоляцией по сеансам и ключами, которые никуда не уходят.
 
-**Pick something else if** you need multi-user access control, a hosted service
-with an SLA, or a mature pull-request review workflow.
+**Берите что-то другое, если** нужны разграничение доступа, размещённый сервис с
+SLA или зрелый процесс ревью пул-реквестов.
 
-## Configuration
+## Настройка
 
-| Variable | Default | Purpose |
+| Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `VIBEPROD_DATA_DIR` | `./data` | SQLite + workspaces (path inside the broker) |
-| `VIBEPROD_HOST_DATA_DIR` | `= VIBEPROD_DATA_DIR` | Same directory as the Docker daemon sees it. Needed when the broker itself is containerised |
-| `VIBEPROD_OPENCODE_IMAGE` | `vibeprod-opencode:latest` | Worker image, built from `worker/` on first run |
-| `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | Build context for the worker image |
-| `VIBEPROD_IDLE_TTL_MIN` | `120` | Idle minutes before a worker is killed |
-| `VIBEPROD_PORT` | `8000` | Broker port |
-| `VIBEPROD_BIND` | `127.0.0.1` | Uvicorn bind address; with `network_mode: host` this *is* the port exposure. `0.0.0.0` only together with `VIBEPROD_LOGIN`/`VIBEPROD_PASSWORD` |
-| `VIBEPROD_TZ` | `Europe/Moscow` | Timezone for cron schedules |
-| `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<port>/guardian/mcp` | Guardian MCP URL as workers see it |
-| `VIBEPROD_LOGIN` · `VIBEPROD_PASSWORD` | — | Login/password for the web UI. Both empty — no login required |
-| `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ALLOWED_USERS` · `TELEGRAM_WEB_URL` | — | First-boot fallback if nothing is configured in the UI |
-| `*_API_KEY` | — | Passed into workers |
+| `VIBEPROD_DATA_DIR` | `./data` | sqlite + workspaces (путь внутри брокера) |
+| `VIBEPROD_HOST_DATA_DIR` | `= VIBEPROD_DATA_DIR` | тот же каталог в системе координат докер-демона. Нужен, когда брокер сам в контейнере |
+| `VIBEPROD_OPENCODE_IMAGE` | `vibeprod-opencode:latest` | образ воркера, собирается из `worker/` при первом запуске |
+| `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | контекст сборки образа воркера |
+| `VIBEPROD_IDLE_TTL_MIN` | `120` | минут простоя до убийства воркера |
+| `VIBEPROD_PORT` | `8000` | порт брокера |
+| `VIBEPROD_BIND` | `127.0.0.1` | интерфейс uvicorn'а; при `network_mode: host` это фактически публикация порта. `0.0.0.0` — только вместе с `VIBEPROD_LOGIN`/`VIBEPROD_PASSWORD` |
+| `VIBEPROD_TZ` | `Europe/Moscow` | таймзона cron-расписаний |
+| `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<порт>/guardian/mcp` | URL guardian MCP так, как его видят воркеры |
+| `VIBEPROD_LOGIN` · `VIBEPROD_PASSWORD` | — | логин и пароль для входа в веб-интерфейс. Оба пусты — вход не требуется |
+| `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ALLOWED_USERS` · `TELEGRAM_WEB_URL` | — | фолбэк на первый запуск, если в интерфейсе ничего не настроено |
+| `*_API_KEY` | — | прокидываются внутрь воркеров |
 
-See [.env.example](.env.example) for the annotated version.
+Аннотированная версия — в [.env.example](.env.example).
 
 ## API
 
@@ -275,16 +291,16 @@ GET/POST   /api/agents                PUT/DELETE /api/agents/{id}
 POST/PUT/DELETE /api/agents/{id}/mcp[/{mid}]     PUT /api/agents/{id}/skills
 GET/POST   /api/skills                PUT/DELETE /api/skills/{id}
 GET/POST   /api/providers             PUT/DELETE /api/providers/{id}
-POST       /api/providers/{id}/check          probe container: register + models + test call
+POST       /api/providers/{id}/check          probe-контейнер: регистрация + модели + тест-запрос
 GET/POST   /api/mcp-catalog           PUT/DELETE /api/mcp-catalog/{id}
-POST       /api/mcp-catalog/{id}/start|stop   docker services
+POST       /api/mcp-catalog/{id}/start|stop   docker-сервисы
 POST       /api/mcp-catalog/{id}/attach       {agent_id}
 GET/POST   /api/webhooks              PUT/DELETE /api/webhooks/{id}
-POST       /api/webhooks/{slug}/run           body {prompt?, title?}, X-Webhook-Secret, ?wait=<sec>
+POST       /api/webhooks/{slug}/run           тело {prompt?, title?}, X-Webhook-Secret, ?wait=<сек>
 GET/POST   /api/out-webhooks          PUT/DELETE /api/out-webhooks/{id}
 GET        /api/out-webhooks/events
-POST       /api/out-webhooks/{id}/test        send webhook.test to the URL
-GET        /api/out-webhooks/{id}/deliveries  delivery log (status, HTTP code, attempts)
+POST       /api/out-webhooks/{id}/test        отправить webhook.test на URL
+GET        /api/out-webhooks/{id}/deliveries  журнал доставок (статус, HTTP-код, попытки)
 POST       /api/out-webhooks/{id}/deliveries/{did}/retry
 GET        /api/channels
 GET/PUT/DELETE /api/telegram          POST /api/telegram/test {token}
@@ -293,32 +309,32 @@ GET        /api/sessions/{id}/messages        DELETE /api/sessions/{id}
 WS         /ws/sessions/{id}
 GET/POST   /api/schedules             PUT/DELETE /api/schedules/{id}
 POST       /api/schedules/{id}/run-now        GET /api/schedules/{id}/runs
-POST       /guardian/mcp                      JSON-RPC over streamable HTTP, bearer secret required
+POST       /guardian/mcp                      JSON-RPC поверх streamable HTTP, только с Bearer-секретом
 ```
 
-Most collection endpoints accept `?project_id=` to scope the result.
+Большинство коллекций принимает `?project_id=` для фильтрации.
 
-## Troubleshooting
+## Устранение неполадок
 
-**The WebSocket will not connect, or local requests return 503.**
-The broker talks to workers over `127.0.0.1`. If a system-wide HTTP proxy is
-enabled (`scutil --proxy` on macOS), Python clients and the browser will route
-loopback traffic through it. Add `127.0.0.1,localhost` to `no_proxy` and to the
-system proxy exception list.
+**WebSocket не подключается, локальные запросы отдают 503.**
+Брокер ходит в воркеры по `127.0.0.1`. Если включён системный HTTP-прокси
+(macOS: `scutil --proxy`), python-клиенты и браузер маршрутизируют loopback через
+него. Добавьте `127.0.0.1,localhost` в `no_proxy` и в исключения системного
+прокси.
 
-**`Model not found: provider/model`.**
-opencode only registers a provider's models when an API key is present. Check
-that the key reached the worker — the **Check** button on the Providers page
-runs exactly that path and shows the model list it got back.
+**Ошибка `Model not found: provider/model`.**
+opencode регистрирует модели провайдера только при наличии API-ключа. Проверьте,
+что ключ доехал до воркера, — кнопка «Проверить» на странице «Провайдеры»
+проходит ровно этот путь и показывает полученный список моделей.
 
-## Contributing
+## Участие в разработке
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Tests: `pytest -q` (no Docker or API key
-needed).
+См. [CONTRIBUTING.md](CONTRIBUTING.md). Тесты: `pytest -q` (докер и ключи не
+нужны).
 
-## License
+## Лицензия
 
-MIT — see [LICENSE](LICENSE). © 2026 Pavel Katskov.
+MIT — см. [LICENSE](LICENSE). © 2026 Pavel Katskov.
 
-Built on [opencode](https://github.com/sst/opencode) by Anomaly Innovations,
-also MIT.
+Построено на [opencode](https://github.com/sst/opencode) от Anomaly Innovations,
+тоже MIT.

@@ -53,7 +53,7 @@ introducing a bundler.
 - Keep the diff focused; unrelated cleanups are easier to review separately.
 - Match the surrounding style. The codebase is plain, comment-light Python.
 - If you change behaviour, update the README (both `README.md` and
-  `README.ru.md`, or say in the PR that you could only do one).
+  `README.en.md`, or say in the PR that you could only do one).
 - New dependencies need a reason — `requirements.txt` is intentionally short.
 
 ## Reporting bugs
