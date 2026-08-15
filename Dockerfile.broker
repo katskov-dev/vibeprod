@@ -3,10 +3,16 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# curl — для healthcheck compose (curl /api/health)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 COPY app ./app
 
 ENV VIBEPROD_DATA_DIR=/app/data
 VOLUME /app/data
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# VIBEPROD_BIND/VIBEPROD_PORT задаются compose из .env. При network_mode: host
+# это фактически публикация порта на хосте (по умолчанию только loopback).
+CMD ["sh", "-c", "exec uvicorn app.main:app --host \"${VIBEPROD_BIND:-127.0.0.1}\" --port \"${VIBEPROD_PORT:-8000}\""]

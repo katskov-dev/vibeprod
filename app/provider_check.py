@@ -21,13 +21,14 @@ from docker.types import Mount
 
 from .docker_runner import (
     IMAGE,
+    NETWORK_HINT,
     OPENCODE_PORT,
     docker_client,
     ensure_image,
     get_host_port,
     _entrypoint_cmd,
 )
-from .opencode_client import USERNAME, wait_healthy
+from .opencode_client import USERNAME, wait_healthy, worker_urls
 
 ENV_VAR_MAP = {
     "deepseek": "DEEPSEEK_API_KEY",
@@ -53,6 +54,29 @@ CATALOG_FILE = Path(
     os.environ.get("VIBEPROD_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
 ) / "provider_catalog.json"
 
+# Workspace-пробы живут под data/probes: брокер может работать в контейнере,
+# и тогда docker-демон (на хосте) не видит пути в его файловой системе.
+DATA_DIR = Path(
+    os.environ.get("VIBEPROD_DATA_DIR", Path(__file__).resolve().parent.parent / "data")
+).resolve()
+PROBES_DIR = DATA_DIR / "probes"
+# Хост-путь к data: задаётся через env, когда брокер сам в докере
+# (compose подставляет VIBEPROD_HOST_DATA_DIR=<каталог на хосте>).
+HOST_DATA_DIR = Path(os.environ.get("VIBEPROD_HOST_DATA_DIR", DATA_DIR))
+
+
+def _host_path(path):
+    """Переводит путь внутри брокера в путь на хосте (для bind-mount).
+
+    Docker резолвит source bind-mount в файловой системе ХОСТА. Без этого
+    пробный контейнер падает с «bind source path does not exist».
+    """
+    p = Path(path).resolve()
+    try:
+        return HOST_DATA_DIR / p.relative_to(DATA_DIR)
+    except ValueError:
+        return p
+
 _catalog_lock = threading.Lock()
 _catalog_mem = None
 _catalog_mem_at = 0.0
@@ -70,7 +94,8 @@ def load_catalog_from_disk():
 
 def _fetch_catalog_live():
     """Поднимает probe-контейнер и спрашивает у opencode полный каталог провайдеров."""
-    ws = tempfile.mkdtemp(prefix="vibeprod-catalog-")
+    PROBES_DIR.mkdir(parents=True, exist_ok=True)
+    ws = Path(tempfile.mkdtemp(prefix="vibeprod-catalog-", dir=PROBES_DIR))
     token = secrets.token_urlsafe(24)
     container = None
     try:
@@ -85,16 +110,19 @@ def _fetch_catalog_live():
             detach=True,
             working_dir="/workspace",
             environment=env,
-            mounts=[Mount(target="/workspace", source=ws, type="bind")],
+            mounts=[Mount(target="/workspace", source=str(_host_path(ws)), type="bind")],
             ports={f"{OPENCODE_PORT}/tcp": None},
             labels={"vibeprod.probe": "1"},
             name=f"vibeprod-catalog-{uuid.uuid4().hex[:10]}",
         )
         port = get_host_port(container.id)
-        url = f"http://127.0.0.1:{port}"
-        if not wait_healthy(url, token, timeout=90):
+        url = wait_healthy(worker_urls(port), token, timeout=90)
+        if not url:
             logs = container.logs(tail=40).decode("utf-8", "replace")
-            raise RuntimeError(f"opencode serve не поднялся: {logs[-400:]}")
+            raise RuntimeError(
+                f"opencode serve не поднялся (нет ответа на {', '.join(worker_urls(port))}). "
+                f"{NETWORK_HINT}\nlogs: {logs[-400:]}"
+            )
         version = "?"
         try:
             version = httpx.get(
@@ -227,7 +255,8 @@ def check_provider(provider_id, api_key, deep=True):
 
     Возвращает {"ok", "models", "error", "gen": {"ok", "model", "reply"/"error"}}.
     """
-    ws = tempfile.mkdtemp(prefix="vibeprod-probe-")
+    PROBES_DIR.mkdir(parents=True, exist_ok=True)
+    ws = Path(tempfile.mkdtemp(prefix="vibeprod-probe-", dir=PROBES_DIR))
     token = secrets.token_urlsafe(24)
     container = None
     try:
@@ -244,16 +273,19 @@ def check_provider(provider_id, api_key, deep=True):
             detach=True,
             working_dir="/workspace",
             environment=env,
-            mounts=[Mount(target="/workspace", source=ws, type="bind")],
+            mounts=[Mount(target="/workspace", source=str(_host_path(ws)), type="bind")],
             ports={f"{OPENCODE_PORT}/tcp": None},
             labels={"vibeprod.probe": "1"},
             name=f"vibeprod-probe-{uuid.uuid4().hex[:10]}",
         )
         port = get_host_port(container.id)
-        url = f"http://127.0.0.1:{port}"
-        if not wait_healthy(url, token, timeout=90):
+        url = wait_healthy(worker_urls(port), token, timeout=90)
+        if not url:
             logs = container.logs(tail=40).decode("utf-8", "replace")
-            raise RuntimeError(f"opencode serve не поднялся: {logs[-400:]}")
+            raise RuntimeError(
+                f"opencode serve не поднялся (нет ответа на {', '.join(worker_urls(port))}). "
+                f"{NETWORK_HINT}\nlogs: {logs[-400:]}"
+            )
         r = httpx.get(f"{url}/config/providers", auth=(USERNAME, token), timeout=15, trust_env=False)
         r.raise_for_status()
         data = r.json()

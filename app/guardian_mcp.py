@@ -13,7 +13,6 @@ import mimetypes
 import os
 import re
 import secrets
-from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -63,7 +62,7 @@ def guardian_mcp_entry(session_id=None, project_id=None):
 
 
 # Контекст вызова: сессия и проект воркера, передаваемые заголовками из opencode.json
-CALL_CTX = contextvars.ContextVar("guardian_call_ctx", default={})
+CALL_CTX = contextvars.ContextVar("guardian_call_ctx", default=None)
 
 
 def _session_ctx():

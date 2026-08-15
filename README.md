@@ -52,13 +52,59 @@ Or in a container:
 docker compose up --build
 ```
 
-The first start pulls `ghcr.io/anomalyco/opencode:latest` and builds the worker
-image on top of it (opencode + git + openssh, so agents can work with repos).
+The first start pulls the pinned `ghcr.io/anomalyco/opencode` image (version
+fixed in compose.yaml and worker/Dockerfile) and builds the worker image on
+top of it — opencode plus a light coding-agent toolkit: python3/pip, curl, jq,
+git, ripgrep, bash, make, zip, openssh (no compilers, to keep the image lean).
 
 Open the UI, describe what you need on the home screen, and the **operator
 agent** will set the project up for you — it creates agents, attaches MCP
 servers and skills, adds providers, webhooks and schedules, all through a
 dedicated MCP server inside the broker.
+
+## Deploy
+
+Server requirements: Linux, Docker + Docker Compose v2, git, `curl`. Deploy
+from the repository — so fixes can be rolled back and merged back upstream:
+
+```bash
+git clone https://github.com/katskov-dev/vibeprod.git /srv/vibeprod
+cd /srv/vibeprod
+bash scripts/setup.sh
+```
+
+`setup.sh` checks Docker, generates `.env` with random MinIO and UI passwords,
+asks for LLM keys (at least one), runs `docker compose up -d --build` and
+prints the URL and credentials. Then verify the whole deployment:
+
+```bash
+bash scripts/smoke.sh    # health → login → session → worker → LLM reply → status
+```
+
+Mind the networking: the broker runs with `network_mode: host` in compose, and
+this is **required**. The broker reaches workers at `127.0.0.1:<host-port>`,
+but inside a bridge network `127.0.0.1` is the broker's own loopback, not the
+host — every session fails with "opencode serve не поднялся". For the same
+reason (no container DNS in host mode) MinIO is published on the host loopback
+(`127.0.0.1:9000`). With host networking, the broker's port is just a uvicorn
+bind: `setup.sh` enables `VIBEPROD_BIND=0.0.0.0` together with UI auth — read
+[SECURITY.md](SECURITY.md) first (without auth it's a root shell on the host).
+Check readiness with `docker compose ps` (both services have healthchecks) or
+`docker compose up --wait`.
+
+Updating: `cd /srv/vibeprod && git pull && docker compose up -d --build`
+(the worker image rebuilds automatically on the next session when
+`worker/Dockerfile` changed).
+
+### Common deployment errors
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Sessions fail with "opencode serve не поднялся" | Broker can't reach the worker port on `127.0.0.1` — `network_mode: host` missing | Use compose.yaml as-is (`network_mode: host` is mandatory); `docker compose config` shows what actually deploys |
+| Probe containers fail with "bind source path does not exist" | `VIBEPROD_HOST_DATA_DIR` not set: the Docker daemon resolves bind sources on the host, not inside the broker | Compose sets `VIBEPROD_HOST_DATA_DIR=${PWD}/data`; outside compose, set it explicitly |
+| Provider catalog empty / "Check" fails (502) | MinIO or Docker unreachable from the broker | `curl http://127.0.0.1:9000/minio/health/live` on the host; `VIBEPROD_S3_ENDPOINT` must be `http://127.0.0.1:9000` (compose default) |
+| `docker compose ps` shows broker unhealthy | Docker daemon or MinIO unreachable from the broker | `docker info` on the host; verify the `/var/run/docker.sock` mount; `curl …/api/health` shows the `docker`/`s3` flags |
+| Sessions fail after an update, but used to work | LLM keys missing | `/api/health` only covers infrastructure; keys live in `.env`/UI. `scripts/smoke.sh` without `SMOKE_SKIP_LLM=1` catches this |
 
 ## How it works
 
@@ -148,6 +194,12 @@ streamed by editing the bot's message in place. Commands: `/agents`, `/agent N`,
 `/chatid`) to receive summaries of scheduled and webhook runs — on every run or
 only on errors.
 
+Every agent also gets built-in Vibeprod tools (a `vibeprod` remote-MCP inside
+each session): `telegram_send` — message the user on Telegram,
+`telegram_send_file` — send a file (from the worker workspace or as text),
+`telegram_info` — channel status. Handy for scheduled runs: the agent finishes a
+job and delivers the result and files to the chat itself.
+
 ### Live sessions
 
 ![Chat](docs/screenshots/chat.png)
@@ -206,6 +258,7 @@ with an SLA, or a mature pull-request review workflow.
 | `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | Build context for the worker image |
 | `VIBEPROD_IDLE_TTL_MIN` | `120` | Idle minutes before a worker is killed |
 | `VIBEPROD_PORT` | `8000` | Broker port |
+| `VIBEPROD_BIND` | `127.0.0.1` | Uvicorn bind address; with `network_mode: host` this *is* the port exposure. `0.0.0.0` only together with `VIBEPROD_LOGIN`/`VIBEPROD_PASSWORD` |
 | `VIBEPROD_TZ` | `Europe/Moscow` | Timezone for cron schedules |
 | `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<port>/guardian/mcp` | Guardian MCP URL as workers see it |
 | `VIBEPROD_LOGIN` · `VIBEPROD_PASSWORD` | — | Login/password for the web UI. Both empty — no login required |

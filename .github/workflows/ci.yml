@@ -39,3 +39,28 @@ jobs:
 
       - name: Validate compose file
         run: docker compose config --quiet
+
+  deploy-smoke:
+    # E2E-проверка деплоя: compose up (network_mode: host + healthchecks) и
+    # smoke.sh без LLM-ключа (проверяем сеть брокер↔воркер, а не модель).
+    # Ловит регрессии вида «в bridge-сети брокер не видит воркеров».
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose up
+        run: |
+          export VIBEPROD_BIND=127.0.0.1
+          export VIBEPROD_PORT=8000
+          export DEEPSEEK_API_KEY=sk-smoke-dummy
+          docker compose up -d --build --wait
+
+      - name: Smoke (инфраструктура, без ответа LLM)
+        run: SMOKE_SKIP_LLM=1 bash scripts/smoke.sh http://127.0.0.1:8000
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail=100 broker minio

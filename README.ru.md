@@ -52,14 +52,61 @@ cp .env.example .env     # впишите хотя бы один ключ про
 docker compose up --build
 ```
 
-Первый запуск подтягивает `ghcr.io/anomalyco/opencode:latest` и собирает поверх
-него образ воркера (opencode + git + openssh, чтобы агенты работали с
-репозиториями).
+Первый запуск подтягивает запиненный образ `ghcr.io/anomalyco/opencode`
+(версия зафиксирована в compose.yaml и worker/Dockerfile) и собирает поверх
+него образ воркера — opencode плюс лёгкий набор для кодинг-агентов:
+python3/pip, curl, jq, git, ripgrep, bash, make, zip, openssh (без
+компиляторов, чтобы не раздувать образ).
 
 Откройте интерфейс, опишите задачу на главном экране — и **агент-оператор**
 настроит проект сам: создаст агентов, подключит MCP-серверы и скиллы, добавит
 провайдеров, вебхуки и расписания. Делает он это через отдельный MCP-сервер,
 живущий внутри брокера.
+
+## Деплой
+
+Требования к серверу: Linux, docker + docker compose v2, git, `curl`.
+Ставьте из репозитория — так фиксы можно откатить и заносить обратно в репо:
+
+```bash
+git clone https://github.com/katskov-dev/vibeprod.git /srv/vibeprod
+cd /srv/vibeprod
+bash scripts/setup.sh
+```
+
+`setup.sh` проверяет docker, генерирует `.env` со случайными паролями MinIO и
+UI, спрашивает LLM-ключи (нужен хотя бы один), поднимает
+`docker compose up -d --build` и печатает URL и креды. После этого проверьте
+деплой целиком:
+
+```bash
+bash scripts/smoke.sh    # health → логин → сессия → воркер → ответ LLM → статус
+```
+
+Важно про сеть: брокер в compose работает в `network_mode: host` — это
+**обязательно**. Брокер ходит в воркеры по `127.0.0.1:<host-port>`, а внутри
+bridge-сети `127.0.0.1` — это loopback самого брокера, а не хоста: все сессии
+падают с «opencode serve не поднялся». По той же причине (в host-режиме нет DNS
+контейнеров) MinIO публикуется на loopback хоста (`127.0.0.1:9000`). Порт
+брокера при host-сети — это просто bind uvicorn'а: `setup.sh` включает
+`VIBEPROD_BIND=0.0.0.0` вместе с авторизацией UI (прочитайте
+[SECURITY.md](SECURITY.md) — без авторизации это root-шелл на хосте). Готовность
+сервисов: `docker compose ps` (у обоих healthcheck) или
+`docker compose up --wait`.
+
+Обновление: `cd /srv/vibeprod && git pull && docker compose up -d --build`
+(образ воркера пересоберётся автоматически на следующей сессии, если изменился
+`worker/Dockerfile`).
+
+### Типовые ошибки деплоя
+
+| Симптом | Причина | Лечение |
+|---|---|---|
+| Сессии падают с «opencode serve не поднялся» | Брокер не видит порт воркера на `127.0.0.1` — нет `network_mode: host` | Используйте compose.yaml как есть (`network_mode: host` обязателен); `docker compose config` покажет, что реально деплоится |
+| Probe-контейнеры падают с «bind source path does not exist» | Не задан `VIBEPROD_HOST_DATA_DIR`: docker-демон резолвит source bind-mount на хосте, а не внутри брокера | compose подставляет `VIBEPROD_HOST_DATA_DIR=${PWD}/data`; вне compose задайте явно |
+| Каталог провайдеров пуст / «Проверить» падает (502) | MinIO или docker недоступны из брокера | `curl http://127.0.0.1:9000/minio/health/live` на хосте; `VIBEPROD_S3_ENDPOINT` должен быть `http://127.0.0.1:9000` (дефолт compose) |
+| `docker compose ps` показывает брокер unhealthy | Из брокера не виден docker-демон или MinIO | `docker info` на хосте; проверьте mount `/var/run/docker.sock`; `curl …/api/health` покажет флаги `docker`/`s3` |
+| Сессии падают, хотя раньше всё работало | Нет LLM-ключей | `/api/health` проверяет только инфраструктуру; ключи — в `.env`/UI. `scripts/smoke.sh` без `SMOKE_SKIP_LLM=1` это отловит |
 
 ## Как устроено
 
@@ -162,6 +209,12 @@ curl -X POST http://localhost:8000/api/webhooks/pr-review/run \
 сообщит бот по команде `/chatid`), туда будут приходить сводки о завершении
 запусков по расписанию и вебхукам — на каждый запуск или только при ошибке.
 
+Кроме того, у **каждого агента** есть встроенные инструменты Vibeprod
+(remote-MCP `vibeprod` внутри каждой сессии): `telegram_send` — написать
+пользователю в Telegram, `telegram_send_file` — прислать файл (из workspace
+воркера или текстом), `telegram_info` — статус канала. Удобно для уведомлений
+из расписаний: агент отработал задание и сам отправил результат и файлы в чат.
+
 ### Живые сессии
 
 ![Чат](docs/screenshots/chat.png)
@@ -221,6 +274,7 @@ SLA или зрелый процесс ревью пул-реквестов.
 | `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | контекст сборки образа воркера |
 | `VIBEPROD_IDLE_TTL_MIN` | `120` | минут простоя до убийства воркера |
 | `VIBEPROD_PORT` | `8000` | порт брокера |
+| `VIBEPROD_BIND` | `127.0.0.1` | интерфейс uvicorn'а; при `network_mode: host` это фактически публикация порта. `0.0.0.0` — только вместе с `VIBEPROD_LOGIN`/`VIBEPROD_PASSWORD` |
 | `VIBEPROD_TZ` | `Europe/Moscow` | таймзона cron-расписаний |
 | `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<порт>/guardian/mcp` | URL guardian MCP так, как его видят воркеры |
 | `VIBEPROD_LOGIN` · `VIBEPROD_PASSWORD` | — | логин и пароль для входа в веб-интерфейс. Оба пусты — вход не требуется |

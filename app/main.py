@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth
 from . import db
+from . import docker_runner
 from . import files_store
 from . import notify
 from . import outwebhooks
@@ -46,15 +47,23 @@ MAIN_LOOP = None
 async def lifespan(app: FastAPI):
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_running_loop()
+    if not docker_runner.daemon_ok():
+        log.error(
+            "Docker-демон недоступен — сессии и проверки провайдеров не запустятся. "
+            "Проверьте: docker запущен на хосте; в compose брокеру примонтирован "
+            "/var/run/docker.sock; у процесса есть права на него "
+            "(sudo usermod -aG docker <user>)."
+        )
     db.init_db()
     if not db.query_one("SELECT id FROM agents WHERE is_guardian=0 LIMIT 1"):
         default_project = db.query_one("SELECT id FROM projects ORDER BY id LIMIT 1")
         db.execute(
             "INSERT INTO agents(name, description, mode, model, system_prompt, permission, is_default, project_id) "
-            "VALUES('general', 'Универсальный агент по умолчанию', 'primary', ?, ?, '\"allow\"', 1, ?)",
+            "VALUES('general', 'Универсальный агент по умолчанию', 'primary', ?, ?, ?, 1, ?)",
             (
                 os.environ.get("VIBEPROD_DEFAULT_MODEL", "deepseek/deepseek-chat"),
                 "Ты полезный ассистент. Отвечай по-русски, кратко и по делу.",
+                '{"edit": "allow", "bash": "allow"}',
                 default_project["id"] if default_project else None,
             ),
         )
@@ -111,6 +120,7 @@ async def require_auth(request: Request, call_next):
         path in PUBLIC_PATHS
         or path.startswith("/static/")
         or path.startswith("/guardian/mcp")
+        or path.startswith("/broker/mcp")
         or (path.startswith("/api/webhooks/") and path.endswith("/run"))
     ):
         return await call_next(request)
@@ -135,6 +145,27 @@ def _file_token_ok(request: Request) -> bool:
 @app.get("/")
 def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+
+@app.get("/api/health")
+def health():
+    """Статус деплоя: docker-демон, MinIO, число живых воркеров.
+
+    Используется healthcheck'ом compose (curl /api/health) и smoke-тестом.
+    """
+    docker_ok = docker_runner.daemon_ok()
+    s3_ok = files_store.healthy()
+    workers = 0
+    try:
+        workers = len(docker_runner.list_vibeprod_containers())
+    except Exception:
+        pass
+    return {
+        "ok": docker_ok and s3_ok,
+        "docker": docker_ok,
+        "s3": s3_ok,
+        "workers": workers,
+    }
 
 
 @app.get("/login")

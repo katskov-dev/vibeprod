@@ -11,13 +11,14 @@ from . import db
 from . import events
 from . import files_store
 from .docker_runner import (
+    NETWORK_HINT,
     container_exists,
     container_logs,
     get_host_port,
     kill_worker,
     run_worker,
 )
-from .opencode_client import OpencodeClient, wait_healthy
+from .opencode_client import OpencodeClient, wait_healthy, worker_urls
 from .render import render_workspace
 from .streamer import streams
 
@@ -146,7 +147,7 @@ def _ensure_mcp_services(mcp_rows):
 
 
 def _client_for(row):
-    return OpencodeClient(f"http://127.0.0.1:{row['host_port']}", row["auth_token"])
+    return OpencodeClient(worker_urls(row["host_port"]), row["auth_token"])
 
 
 def _terminal_fail(sid, error):
@@ -223,11 +224,14 @@ async def start_session(sid, initial_prompt=None):
         )
         db.execute("UPDATE sessions SET container_id=? WHERE id=?", (container_id, sid))
         port = await asyncio.to_thread(get_host_port, container_id)
-        url = f"http://127.0.0.1:{port}"
-        healthy = await asyncio.to_thread(wait_healthy, url, token)
-        if not healthy:
+        url = await asyncio.to_thread(wait_healthy, worker_urls(port), token)
+        if not url:
             logs = await asyncio.to_thread(container_logs, container_id)
-            raise RuntimeError(f"opencode serve не поднялся. logs: {logs[-600:]}")
+            raise RuntimeError(
+                f"opencode serve не поднялся (воркер не отвечает на "
+                f"{', '.join(worker_urls(port))}). {NETWORK_HINT} "
+                f"logs: {logs[-600:]}"
+            )
         db.execute("UPDATE sessions SET host_port=? WHERE id=?", (int(port), sid))
         client = OpencodeClient(url, token)
         try:
@@ -399,7 +403,10 @@ async def reattach_streamers():
     for row in rows:
         if not container_exists(row["container_id"]):
             continue
-        url = f"http://127.0.0.1:{row['host_port']}"
+        urls = worker_urls(row["host_port"])
+        url = await asyncio.to_thread(wait_healthy, urls, row["auth_token"])
+        if not url:
+            continue
         token = row["auth_token"]
         done = False
         try:
