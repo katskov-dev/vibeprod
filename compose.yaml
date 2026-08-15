@@ -3,11 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.broker
-    # Порт публикуется только на loopback: у брокера нет аутентификации, а через
-    # docker.sock он управляет докер-демоном. Прежде чем менять на 0.0.0.0,
-    # прочитайте SECURITY.md — снаружи это равносильно root-шеллу на хосте.
+    # Порт публикуется по умолчанию только на loopback: брокер управляет
+    # докер-демоном через docker.sock. Чтобы открыть наружу — задайте
+    # VIBEPROD_BIND=0.0.0.0 И включите авторизацию VIBEPROD_LOGIN/VIBEPROD_PASSWORD.
+    # Прочитайте SECURITY.md: без авторизации снаружи это равносильно root-шеллу на хосте.
     ports:
-      - "127.0.0.1:${VIBEPROD_PORT:-8000}:8000"
+      - "${VIBEPROD_BIND:-127.0.0.1}:${VIBEPROD_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - ./mcp:/app/mcp:ro
@@ -22,6 +23,9 @@ services:
       - VIBEPROD_S3_ENDPOINT=${VIBEPROD_S3_ENDPOINT:-http://vibeprod-minio:9000}
       - VIBEPROD_S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - VIBEPROD_S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - VIBEPROD_LOGIN=${VIBEPROD_LOGIN:-}
+      - VIBEPROD_PASSWORD=${VIBEPROD_PASSWORD:-}
+      - VIBEPROD_BROKER_URL=${VIBEPROD_BROKER_URL:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
