@@ -26,7 +26,7 @@ services:
       - VIBEPROD_TZ=${VIBEPROD_TZ:-Europe/Moscow}
       # Только тег (без @sha256: digest невалиден как тег сборки в docker SDK).
       # Digest базового образа закреплён в worker/Dockerfile (FROM ...@sha256).
-      - VIBEPROD_OPENCODE_IMAGE=${VIBEPROD_OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.0.196}
+      - VIBEPROD_OPENCODE_IMAGE=${VIBEPROD_OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.18.18}
       - VIBEPROD_IDLE_TTL_MIN=${VIBEPROD_IDLE_TTL_MIN:-120}
       - VIBEPROD_PORT=${VIBEPROD_PORT:-8000}
       - VIBEPROD_BIND=${VIBEPROD_BIND:-127.0.0.1}
