@@ -69,6 +69,36 @@ def _session_ctx():
     return CALL_CTX.get() or {}
 
 
+def _own_project():
+    """Проект из контекста сессии. Guardian работает только в нём."""
+    pid = _session_ctx().get("project_id")
+    if pid is None:
+        raise ToolError("контекст вызова без проекта — инструмент недоступен")
+    return int(pid)
+
+
+def _scoped_project(args, field="project_id"):
+    """project_id из аргументов, проверенный на принадлежность проекту контекста.
+
+    Явный чужой project_id — ошибка; отсутствующий — проект контекста.
+    """
+    own = _own_project()
+    raw = args.get(field)
+    pid = int(raw) if raw is not None else own
+    if pid != own:
+        raise ToolError("нет доступа к данным другого проекта")
+    return pid
+
+
+def _scoped_row(rows, what):
+    """Первая строка списка, принадлежащая проекту контекста."""
+    own = _own_project()
+    row = rows[0] if rows else None
+    if not row or (row.get("project_id") is not None and int(row["project_id"]) != own):
+        raise ToolError(f"{what} принадлежит другому проекту или не найден")
+    return row
+
+
 def _int(value, field):
     try:
         return int(value)
@@ -82,6 +112,9 @@ def _agent_row(agent_id):
         raise ToolError(f"агент {agent_id} не найден")
     if row["is_guardian"]:
         raise ToolError("guardian — системный агент, его нельзя менять")
+    ctx_pid = _session_ctx().get("project_id")
+    if ctx_pid is not None and row.get("project_id") is not None and int(row["project_id"]) != int(ctx_pid):
+        raise ToolError(f"агент {agent_id} принадлежит другому проекту")
     return row
 
 
@@ -108,26 +141,29 @@ def _pretty(data):
 # ---------- проекты ----------
 
 def h_project_list(args):
-    return db.query(
-        "SELECT p.id, p.name, p.description, "
-        "(SELECT COUNT(*) FROM agents a WHERE a.project_id=p.id AND a.is_guardian=0) AS agent_count "
-        "FROM projects p ORDER BY p.id"
-    )
+    own = _own_project()
+    row = db.query_one("SELECT * FROM projects WHERE id=?", (own,))
+    if not row:
+        raise ToolError(f"проект {own} не найден")
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "description": row["description"],
+            "agent_count": db.query_one("SELECT COUNT(*) AS n FROM agents WHERE project_id=? AND is_guardian=0", (own,))["n"],
+        }
+    ]
 
 
 def h_project_create(args):
-    name = (args.get("name") or "").strip()
-    if not name:
-        raise ToolError("name обязателен")
-    pid = db.execute(
-        "INSERT INTO projects(name, description) VALUES(?,?)",
-        (name, args.get("description") or ""),
-    )
-    return db.query_one("SELECT * FROM projects WHERE id=?", (pid,))
+    raise ToolError("guardian работает только в рамках своего проекта — создание проектов недоступно")
 
 
 def h_project_update(args):
     pid = _int(args.get("id"), "id")
+    own = _own_project()
+    if pid != own:
+        raise ToolError("нет доступа к данным другого проекта")
     row = db.query_one("SELECT * FROM projects WHERE id=?", (pid,))
     if not row:
         raise ToolError(f"проект {pid} не найден")
@@ -143,6 +179,9 @@ def h_project_update(args):
 
 async def h_project_delete(args):
     pid = _int(args.get("id"), "id")
+    own = _own_project()
+    if pid != own:
+        raise ToolError("нет доступа к данным другого проекта")
     row = db.query_one("SELECT * FROM projects WHERE id=?", (pid,))
     if not row:
         raise ToolError(f"проект {pid} не найден")
@@ -165,16 +204,14 @@ async def h_project_delete(args):
 # ---------- агенты ----------
 
 def h_agent_list(args):
+    own = _own_project()
     sql = (
         "SELECT id, name, description, mode, model, temperature, system_prompt, permission, "
-        "is_default, project_id FROM agents WHERE is_guardian=0"
+        "is_default, project_id FROM agents WHERE is_guardian=0 AND project_id=?"
     )
-    params = ()
-    if args.get("project_id") is not None:
-        sql += " AND project_id=?"
-        params = (_int(args.get("project_id"), "project_id"),)
-    sql += " ORDER BY name"
-    return db.query(sql, params)
+    if args.get("project_id") is not None and _int(args.get("project_id"), "project_id") != own:
+        raise ToolError("нет доступа к данным другого проекта")
+    return db.query(sql + " ORDER BY name", (own,))
 
 
 def _agent_payload(args):
@@ -189,6 +226,7 @@ def h_agent_get(args):
 
 def h_agent_create(args):
     payload = _agent_payload(args)
+    payload["project_id"] = _scoped_project(payload)
     name, mode, model, temperature = _validate_agent(payload)
     if db.query_one("SELECT id FROM agents WHERE name=?", (name,)):
         raise ToolError(f"агент с именем {name} уже есть")
@@ -217,6 +255,8 @@ def h_agent_update(args):
     aid = _int(args.get("id"), "id")
     row = _agent_row(aid)
     payload = _agent_payload(args)
+    if "project_id" in payload:
+        payload["project_id"] = _scoped_project(payload)
     name, mode, model, temperature = _validate_agent({**row, **payload})
     other = db.query_one("SELECT id FROM agents WHERE name=? AND id<>?", (name, aid))
     if other:
@@ -409,9 +449,12 @@ PROVIDER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 
 
 def h_provider_list(args):
+    own = _own_project()
     return db.query(
         "SELECT id, label, env_var, enabled, project_id, models, last_check_ok, last_check_error, "
-        "last_check_at, (api_key IS NOT NULL AND api_key <> '') AS has_key FROM providers ORDER BY id"
+        "last_check_at, (api_key IS NOT NULL AND api_key <> '') AS has_key FROM providers "
+        "WHERE project_id=? ORDER BY id",
+        (own,),
     )
 
 
@@ -429,7 +472,7 @@ def h_provider_add(args):
             env_var_for(pid),
             args.get("api_key") or "",
             1 if args.get("enabled", True) else 0,
-            _check_project(args.get("project_id")),
+            _scoped_project(args),
         ),
     )
     return {"ok": True, "id": pid, "env_var": env_var_for(pid)}
@@ -440,7 +483,10 @@ def h_provider_update(args):
     row = db.query_one("SELECT * FROM providers WHERE id=?", (pid,))
     if not row:
         raise ToolError(f"провайдер {pid} не найден")
-    project_id = _check_project(args.get("project_id", row["project_id"]))
+    own = _own_project()
+    if row.get("project_id") is not None and int(row["project_id"]) != own:
+        raise ToolError("нет доступа к данным другого проекта")
+    project_id = _scoped_project(args) if args.get("project_id") is not None else row["project_id"]
     if args.get("api_key"):
         db.execute(
             "UPDATE providers SET label=?, api_key=?, enabled=?, project_id=?, updated_at=datetime('now') WHERE id=?",
@@ -458,8 +504,12 @@ def h_provider_update(args):
 
 def h_provider_delete(args):
     pid = (args.get("id") or "").strip().lower()
-    if not db.query_one("SELECT id FROM providers WHERE id=?", (pid,)):
+    row = db.query_one("SELECT id, project_id FROM providers WHERE id=?", (pid,))
+    if not row:
         raise ToolError(f"провайдер {pid} не найден")
+    own = _own_project()
+    if row.get("project_id") is not None and int(row["project_id"]) != own:
+        raise ToolError("нет доступа к данным другого проекта")
     db.execute("DELETE FROM providers WHERE id=?", (pid,))
     return {"ok": True}
 
@@ -469,6 +519,9 @@ async def h_provider_check(args):
     row = db.query_one("SELECT * FROM providers WHERE id=?", (pid,))
     if not row:
         raise ToolError(f"провайдер {pid} не найден")
+    own = _own_project()
+    if row.get("project_id") is not None and int(row["project_id"]) != own:
+        raise ToolError("нет доступа к данным другого проекта")
     deep = bool(args.get("deep", True))
     result = await asyncio.to_thread(check_provider, pid, row["api_key"], deep=deep)
     db.execute(
@@ -501,11 +554,13 @@ def _guardian_agent_check(agent_row):
 
 
 def h_webhook_list(args):
+    own = _own_project()
     return [
         _webhook_out(r)
         for r in db.query(
             "SELECT w.*, a.name AS agent_name FROM webhooks w "
-            "LEFT JOIN agents a ON a.id=w.agent_id ORDER BY w.slug"
+            "LEFT JOIN agents a ON a.id=w.agent_id WHERE w.project_id=? ORDER BY w.slug",
+            (own,),
         )
     ]
 
@@ -513,8 +568,13 @@ def h_webhook_list(args):
 def h_webhook_create(args):
     payload = {k: args[k] for k in ("slug", "agent_id", "project_id", "title", "prompt", "secret", "enabled")
                if k in args and args[k] is not None}
+    if "project_id" in payload:
+        payload["project_id"] = _scoped_project(payload)
     slug, agent, project_id = _validate_webhook(payload)
     _guardian_agent_check(agent)
+    _agent_row(agent["id"])
+    if project_id != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
     if db.query_one("SELECT id FROM webhooks WHERE slug=?", (slug,)):
         raise ToolError(f"webhook с slug {slug} уже есть")
     wid = db.execute(
@@ -537,10 +597,17 @@ def h_webhook_update(args):
     row = db.query_one("SELECT * FROM webhooks WHERE id=?", (wid,))
     if not row:
         raise ToolError(f"webhook {wid} не найден")
+    if row.get("project_id") is not None and int(row["project_id"]) != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
     payload = {k: args[k] for k in ("slug", "agent_id", "project_id", "title", "prompt", "secret", "enabled")
                if k in args and args[k] is not None}
+    if "project_id" in payload:
+        payload["project_id"] = _scoped_project(payload)
     slug, agent, project_id = _validate_webhook({**row, **payload})
     _guardian_agent_check(agent)
+    _agent_row(agent["id"])
+    if project_id != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
     other = db.query_one("SELECT id FROM webhooks WHERE slug=? AND id<>?", (slug, wid))
     if other:
         raise ToolError(f"webhook с slug {slug} уже есть")
@@ -562,6 +629,11 @@ def h_webhook_update(args):
 
 def h_webhook_delete(args):
     wid = _int(args.get("id"), "id")
+    row = db.query_one("SELECT project_id FROM webhooks WHERE id=?", (wid,))
+    if not row:
+        raise ToolError(f"webhook {wid} не найден")
+    if row.get("project_id") is not None and int(row["project_id"]) != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
     db.execute("DELETE FROM webhooks WHERE id=?", (wid,))
     return {"ok": True}
 
@@ -569,9 +641,11 @@ def h_webhook_delete(args):
 # ---------- расписания ----------
 
 def h_schedule_list(args):
+    own = _own_project()
     rows = db.query(
         "SELECT s.*, a.name AS agent_name FROM schedules s "
-        "LEFT JOIN agents a ON a.id=s.agent_id ORDER BY s.id"
+        "LEFT JOIN agents a ON a.id=s.agent_id WHERE s.project_id=? ORDER BY s.id",
+        (own,),
     )
     for r in rows:
         r["next_run"] = scheduler.job_next_run(r["id"])
@@ -583,8 +657,13 @@ def h_schedule_list(args):
 def h_schedule_create(args):
     agent_id = _int(args.get("agent_id"), "agent_id")
     _agent_row(agent_id)
+    own = _own_project()
+    if args.get("project_id") is not None and _int(args.get("project_id"), "project_id") != own:
+        raise ToolError("нет доступа к данным другого проекта")
     agent = db.query_one("SELECT project_id FROM agents WHERE id=?", (agent_id,))
-    project_id = _check_project(args.get("project_id", agent["project_id"]))
+    if agent["project_id"] is not None and int(agent["project_id"]) != own:
+        raise ToolError("нет доступа к данным другого проекта")
+    project_id = own
     prompt = (args.get("prompt") or "").strip()
     if not prompt:
         raise ToolError("prompt обязателен")
@@ -610,17 +689,22 @@ def h_schedule_update(args):
     row = db.query_one("SELECT * FROM schedules WHERE id=?", (sid,))
     if not row:
         raise ToolError(f"расписание {sid} не найдено")
+    own = _own_project()
+    if row.get("project_id") is not None and int(row["project_id"]) != own:
+        raise ToolError("нет доступа к данным другого проекта")
     keys = ("agent_id", "project_id", "title", "prompt", "cron", "timezone", "enabled")
     merged = {**row, **{k: args[k] for k in keys if k in args and args[k] is not None}}
     if int(merged["agent_id"]) != row["agent_id"]:
         _agent_row(int(merged["agent_id"]))
+    if merged.get("project_id") is not None and int(merged["project_id"]) != own:
+        raise ToolError("нет доступа к данным другого проекта")
     cron = merged["cron"]
     tz = merged["timezone"] or "Europe/Moscow"
     try:
         scheduler.validate_cron(cron, tz)
     except ValueError as exc:
         raise ToolError(f"некорректный cron: {exc}")
-    project_id = _check_project(merged.get("project_id", row["project_id"]))
+    project_id = own
     db.execute(
         "UPDATE schedules SET agent_id=?, project_id=?, title=?, prompt=?, cron=?, timezone=?, enabled=? WHERE id=?",
         (
@@ -640,6 +724,11 @@ def h_schedule_update(args):
 
 def h_schedule_delete(args):
     sid = _int(args.get("id"), "id")
+    row = db.query_one("SELECT project_id FROM schedules WHERE id=?", (sid,))
+    if not row:
+        raise ToolError(f"расписание {sid} не найдено")
+    if row.get("project_id") is not None and int(row["project_id"]) != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
     db.execute("DELETE FROM schedules WHERE id=?", (sid,))
     scheduler.apply_schedule(sid)
     return {"ok": True}
@@ -650,6 +739,8 @@ async def h_schedule_run_now(args):
     row = db.query_one("SELECT * FROM schedules WHERE id=?", (sid,))
     if not row:
         raise ToolError(f"расписание {sid} не найдено")
+    if row.get("project_id") is not None and int(row["project_id"]) != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
     await asyncio.to_thread(scheduler._fire, sid)
     return {"ok": True}
 
@@ -660,14 +751,12 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
 
 
 def _file_ctx(args):
-    """project_id из аргументов или из контекста сессии (заголовок X-Vibeprod-Project)."""
-    ctx = _session_ctx()
+    """project_id из аргументов или из контекста сессии — только свой проект."""
+    own = _own_project()
     pid = args.get("project_id")
-    if pid is None and ctx.get("project_id"):
-        pid = int(ctx["project_id"])
-    if pid is None:
-        raise ToolError("project_id обязателен")
-    pid = _int(pid, "project_id")
+    if pid is not None and _int(pid, "project_id") != own:
+        raise ToolError("нет доступа к данным другого проекта")
+    pid = own
     if not db.query_one("SELECT id FROM projects WHERE id=?", (pid,)):
         raise ToolError(f"проект {pid} не найден")
     return pid
@@ -750,10 +839,11 @@ def h_session_list(args):
         limit = min(int(args.get("limit") or 20), 100)
     except (TypeError, ValueError):
         limit = 20
+    own = _own_project()
     return db.query(
         "SELECT id, agent_name, title, source, status, model, created_at, started_at, finished_at, error "
-        "FROM sessions ORDER BY created_at DESC LIMIT ?",
-        (limit,),
+        "FROM sessions WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
+        (own, limit),
     )
 
 
@@ -765,17 +855,29 @@ def h_session_run(args):
         raise ToolError("prompt обязателен")
     from . import session_manager
 
-    sid = session_manager.create_session(agent_id, args.get("title") or prompt[:60], prompt, source="guardian")
+    sid = session_manager.create_session(
+        agent_id, args.get("title") or prompt[:60], prompt, source="guardian", project_id=_own_project()
+    )
     from .main import spawn_start
 
     spawn_start(sid, prompt)
     return {"ok": True, "session_id": sid, "status": "queued"}
 
 
+def _own_session_row(sid, what):
+    row = db.query_one("SELECT id, project_id FROM sessions WHERE id=?", (sid,))
+    if not row:
+        raise ToolError(f"{what} не найден")
+    if row.get("project_id") is not None and int(row["project_id"]) != _own_project():
+        raise ToolError("нет доступа к данным другого проекта")
+    return row
+
+
 async def h_session_abort(args):
     sid = args.get("session_id") or ""
     if not sid:
         raise ToolError("session_id обязателен")
+    _own_session_row(sid, "сессия")
     from . import session_manager
 
     await session_manager.abort_session(sid)
@@ -786,6 +888,7 @@ async def h_session_delete(args):
     sid = args.get("session_id") or ""
     if not sid:
         raise ToolError("session_id обязателен")
+    _own_session_row(sid, "сессия")
     from . import session_manager
 
     await session_manager.delete_session(sid)

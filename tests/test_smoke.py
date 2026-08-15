@@ -185,10 +185,10 @@ def test_guardian_file_tools(monkeypatch, tmp_path):
     ctx = {"session_id": "sess1", "project_id": 1}
 
     async def run():
-        r1 = await guardian_mcp.call_tool("file_put", {"project_id": 1, "path": "reports/отчёт.md", "content": "# Отчёт"})
-        r2 = await guardian_mcp.call_tool("file_list", {"project_id": 1, "prefix": "reports"})
-        r3 = await guardian_mcp.call_tool("file_delete", {"project_id": 1, "path": "reports/отчёт.md"})
-        r4 = await guardian_mcp.call_tool("file_put", {"project_id": 1, "path": "x.md"})
+        r1 = await guardian_mcp.call_tool("file_put", {"project_id": 1, "path": "reports/отчёт.md", "content": "# Отчёт"}, ctx)
+        r2 = await guardian_mcp.call_tool("file_list", {"project_id": 1, "prefix": "reports"}, ctx)
+        r3 = await guardian_mcp.call_tool("file_delete", {"project_id": 1, "path": "reports/отчёт.md"}, ctx)
+        r4 = await guardian_mcp.call_tool("file_put", {"project_id": 1, "path": "x.md"}, ctx)
         r5 = await guardian_mcp.call_tool("file_put", {"path": "calc.html", "workspace_path": "index.html"}, ctx)
         r6 = await guardian_mcp.call_tool("file_put", {"path": "calc.html", "workspace_path": "../outside.html"}, ctx)
         r7 = await guardian_mcp.call_tool("file_list", {"prefix": "reports"}, ctx)
@@ -211,10 +211,99 @@ def test_guardian_file_tools_project_missing(monkeypatch):
     from app import guardian_mcp
 
     async def run():
-        return await guardian_mcp.call_tool("file_list", {"project_id": 999999})
+        return await guardian_mcp.call_tool("file_list", {"project_id": 999999}, {"session_id": "s", "project_id": 1})
 
     r = asyncio.run(run())
-    assert r["isError"] and "не найден" in r["content"][0]["text"]
+    assert r["isError"] and "другого проекта" in r["content"][0]["text"]
+
+
+def test_guardian_scoped_to_own_project(client):
+    import asyncio
+    import json
+
+    from app import db, guardian_mcp
+
+    pid2 = db.execute("INSERT INTO projects(name, file_token) VALUES('Второй', 'tok2')")
+    aid2 = db.execute(
+        "INSERT INTO agents(name, mode, model, project_id) VALUES('other-agent', 'primary', 'm/m', ?)", (pid2,)
+    )
+    db.execute("INSERT INTO providers(id, env_var, project_id) VALUES('other-prov', 'X_API_KEY', ?)", (pid2,))
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status) "
+        "VALUES('ses-other', ?, 'other-agent', ?, 'x', 'manual', 'running')",
+        (aid2, pid2),
+    )
+    db.execute(
+        "INSERT INTO webhooks(slug, agent_id, project_id, title) VALUES('other-hook', ?, ?, 'x')",
+        (aid2, pid2),
+    )
+    ctx = {"session_id": "sess1", "project_id": 1}
+
+    def call(name, args):
+        return asyncio.run(guardian_mcp.call_tool(name, args, ctx))
+
+    def txt(r):
+        return r["content"][0]["text"]
+
+    def deny(name, args):
+        r = call(name, args)
+        assert r["isError"] and "друг" in txt(r), (name, txt(r))
+
+    # project_list — только свой проект
+    assert [p["id"] for p in json.loads(txt(call("project_list", {})))] == [1]
+    # project_create запрещён
+    assert call("project_create", {"name": "x"})["isError"]
+    deny("project_update", {"id": pid2, "name": "x"})
+    deny("project_delete", {"id": pid2})
+
+    # агенты
+    names = [a["name"] for a in json.loads(txt(call("agent_list", {})))]
+    assert "other-agent" not in names
+    deny("agent_list", {"project_id": pid2})
+    deny("agent_get", {"id": aid2})
+    deny("agent_update", {"id": aid2, "description": "x"})
+    deny("agent_delete", {"id": aid2})
+    deny("agent_create", {"name": "scoped-test", "project_id": pid2})
+    # создание в своём проекте работает
+    r = call("agent_create", {"name": "scoped-test"})
+    assert not r["isError"], txt(r)
+    db.execute("DELETE FROM agents WHERE name='scoped-test'")
+
+    # провайдеры
+    provs = [p["id"] for p in json.loads(txt(call("provider_list", {})))]
+    assert "other-prov" not in provs
+    deny("provider_add", {"id": "x1", "project_id": pid2})
+    deny("provider_update", {"id": "other-prov", "label": "x"})
+    deny("provider_delete", {"id": "other-prov"})
+    deny("provider_check", {"id": "other-prov", "deep": False})
+
+    # вебхуки
+    hooks = [w["slug"] for w in json.loads(txt(call("webhook_list", {})))]
+    assert "other-hook" not in hooks
+    deny("webhook_delete", {"id": db.query_one("SELECT id FROM webhooks WHERE slug='other-hook'")["id"]})
+
+    # расписания
+    db.execute(
+        "INSERT INTO schedules(agent_id, project_id, title, prompt, cron) VALUES(?, ?, 's', 'p', '0 9 * * *')",
+        (aid2, pid2),
+    )
+    sched_other = db.query_one("SELECT id FROM schedules WHERE project_id=?", (pid2,))["id"]
+    assert all(s["id"] != sched_other for s in json.loads(txt(call("schedule_list", {}))))
+    deny("schedule_update", {"id": sched_other, "title": "x"})
+    deny("schedule_delete", {"id": sched_other})
+    deny("schedule_run_now", {"id": sched_other})
+    deny("schedule_create", {"agent_id": aid2, "prompt": "p", "cron": "0 9 * * *"})
+
+    # сессии
+    assert "ses-other" not in txt(call("session_list", {}))
+    deny("session_abort", {"session_id": "ses-other"})
+    deny("session_delete", {"session_id": "ses-other"})
+    deny("session_run", {"agent_id": aid2, "prompt": "x"})
+
+    # файлы
+    deny("file_list", {"project_id": pid2})
+    deny("file_put", {"project_id": pid2, "path": "x.txt", "content": "x"})
+    deny("file_delete", {"project_id": pid2, "path": "x.txt"})
 
 
 def test_unknown_session_is_404(client):
