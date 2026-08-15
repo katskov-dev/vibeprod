@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vibeprod — a self-hosted control plane for opencode agents</title>
-<meta name="description" content="Run AI agents on your own machine: a web UI over many sessions, one Docker container each, plus cron schedules, webhooks and Telegram. MIT licensed.">
+<meta name="description" content="Run AI agents on your own machine: a web UI over many sessions, one Docker container each, plus cron schedules, inbound and outbound webhooks, Telegram, per-project file storage and a login on the front door. MIT licensed.">
 <style>
 /* ── tokens ─────────────────────────────────────────────────────────────── */
 :root {
@@ -388,6 +388,40 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .warn p { margin: 0; font-size: 0.94rem; color: inherit; }
 .warn a { color: inherit; }
 
+/* ── language switch ────────────────────────────────────────────────────── */
+.langsw {
+  position: fixed;
+  top: 0.8rem;
+  right: 0.8rem;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line-firm);
+  border-radius: 3px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+.langsw button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--display);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.32rem 0.6rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.langsw button:hover { color: var(--ink); }
+.langsw button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
 /* ── footer ─────────────────────────────────────────────────────────────── */
 footer {
   padding: 3rem var(--gutter);
@@ -405,37 +439,43 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 </head>
 <body>
 
+<div class="langsw" role="group" aria-label="Language">
+  <button type="button" data-lang="en" aria-pressed="true">EN</button>
+  <button type="button" data-lang="ru" aria-pressed="false">RU</button>
+</div>
+
 <header class="hero">
   <div class="wrap">
     <h1 class="hero__mark">Vibeprod</h1>
-    <p class="hero__thesis">Your agents, your machine, your keys.</p>
-    <p class="hero__sub">
+    <p class="hero__thesis" data-i18n="hero.thesis">Your agents, your machine, your keys.</p>
+    <p class="hero__sub" data-i18n="hero.sub">
       A self-hosted control plane for <a href="https://github.com/sst/opencode">opencode</a>.
       One web UI over many sessions — each in its own Docker container — started by hand,
       by cron, by webhook, or from a chat.
     </p>
 
     <div class="hero__actions">
-      <a class="btn btn--primary" href="https://github.com/katskov-dev/vibeprod">Get it on GitHub</a>
-      <a class="btn" href="#quickstart">Quick start</a>
-      <a class="btn" href="#comparison">How it compares</a>
+      <a class="btn btn--primary" href="https://github.com/katskov-dev/vibeprod" data-i18n="btn.github">Get it on GitHub</a>
+      <a class="btn" href="#quickstart" data-i18n="btn.quickstart">Quick start</a>
+      <a class="btn" href="#comparison" data-i18n="btn.compare">How it compares</a>
     </div>
 
     <p class="badges">
-      <span>MIT licensed</span>
-      <span>~6k lines of Python</span>
-      <span>SQLite, no queue</span>
-      <span>Bring your own key</span>
+      <span data-i18n="badge.mit">MIT licensed</span>
+      <span data-i18n="badge.loc">~6k lines of Python</span>
+      <span data-i18n="badge.sqlite">SQLite, no queue</span>
+      <span data-i18n="badge.byok">Bring your own key</span>
+      <span data-i18n="badge.login">Login on the front door</span>
     </p>
 
     <div class="dispatch">
       <div>
-        <p class="col-label">Triggers</p>
+        <p class="col-label" data-i18n="dispatch.triggers">Triggers</p>
         <div class="sources">
-        <div class="source"><b>manual</b><span>you, in the web UI</span></div>
-        <div class="source"><b>schedule</b><span>cron, with a timezone</span></div>
-        <div class="source"><b>webhook</b><span>POST from CI or anywhere</span></div>
-        <div class="source"><b>telegram</b><span>a message to your bot</span></div>
+        <div class="source" data-i18n="src.manual"><b>manual</b><span>you, in the web UI</span></div>
+        <div class="source" data-i18n="src.schedule"><b>schedule</b><span>cron, with a timezone</span></div>
+        <div class="source" data-i18n="src.webhook"><b>webhook</b><span>POST from CI or anywhere</span></div>
+        <div class="source" data-i18n="src.telegram"><b>telegram</b><span>a message to your bot</span></div>
         </div>
       </div>
 
@@ -445,29 +485,29 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
       </div>
 
       <div>
-        <p class="col-label">One container per session</p>
+        <p class="col-label" data-i18n="dispatch.workers">One container per session</p>
         <div class="workers">
-        <div class="worker">code-reviewer <em>own workspace · own port · own token</em></div>
-        <div class="worker">nightly-tests <em>history kept on a docker volume</em></div>
-        <div class="worker">oncall-triage <em>killed after its idle timeout</em></div>
+        <div class="worker" data-i18n="worker.1">code-reviewer <em>own workspace · own port · own token</em></div>
+        <div class="worker" data-i18n="worker.2">nightly-tests <em>history kept on a docker volume</em></div>
+        <div class="worker" data-i18n="worker.3">oncall-triage <em>killed after its idle timeout</em></div>
         </div>
       </div>
 
-      <p class="dispatch__note">nothing leaves the machine — not the code, not the keys</p>
+      <p class="dispatch__note" data-i18n="dispatch.note">nothing leaves the machine — not the code, not the keys</p>
     </div>
   </div>
 </header>
 
 <section class="band band--alt">
   <div class="wrap">
-    <p class="eyebrow">The problem</p>
-    <h2 class="section-title">Terminal agents don't schedule themselves</h2>
-    <p class="lede">
+    <p class="eyebrow" data-i18n="eyebrow.problem">The problem</p>
+    <h2 class="section-title" data-i18n="problem.title">Terminal agents don't schedule themselves</h2>
+    <p class="lede" data-i18n="problem.p1">
       opencode is an excellent coding agent, and it lives in your terminal — one session,
       in front of you, while you watch it. The moment you want a second one, or a nightly run,
       or an agent that answers a webhook from CI, you are on your own.
     </p>
-    <p class="lede" style="margin-top:1rem">
+    <p class="lede" style="margin-top:1rem" data-i18n="problem.p2">
       The hosted products solve that, and charge for it: your code goes to their sandbox,
       your automation lives behind their subscription. Vibeprod solves it on your hardware
       instead. It is one FastAPI process with a SQLite file next to it — no queue,
@@ -478,43 +518,43 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 
 <section class="band">
   <div class="wrap">
-    <p class="eyebrow">What you get</p>
-    <h2 class="section-title">A console for agents that keep running</h2>
+    <p class="eyebrow" data-i18n="eyebrow.what">What you get</p>
+    <h2 class="section-title" data-i18n="what.title">A console for agents that keep running</h2>
 
     <div class="feature" style="margin-top:2.5rem">
       <div class="feature__head">
-        <h3 class="section-title" style="font-size:1.15rem">Every session, in one place</h3>
-        <p>
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.sessions.h">Every session, in one place</h3>
+        <p data-i18n="f.sessions.p">
           Sessions are tagged by what started them, so a nightly cron run and a Telegram
           question sit in the same list with the same transcript. A worker can be restarted
           without losing the thread — history lives on a Docker volume, not in the container.
         </p>
       </div>
       <figure class="shot">
-        <img src="screenshots/sessions.png" alt="The sessions list, with runs labelled telegram, schedule and webhook alongside their status." loading="lazy" width="1440" height="900">
-        <figcaption>Sessions — labelled by trigger, live status on the right</figcaption>
+        <img src="screenshots/sessions.png" data-i18n-alt="f.sessions.alt" alt="The sessions list, with runs labelled telegram, schedule and webhook alongside their status." loading="lazy" width="1440" height="900">
+        <figcaption data-i18n="f.sessions.cap">Sessions — labelled by trigger, live status on the right</figcaption>
       </figure>
     </div>
 
     <div class="feature">
       <div class="feature__head">
-        <h3 class="section-title" style="font-size:1.15rem">Watch the agent think</h3>
-        <p>
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.stream.h">Watch the agent think</h3>
+        <p data-i18n="f.stream.p">
           The broker reads the worker's SSE stream and fans it out over a WebSocket.
           Tool calls, reasoning blocks and todo lists appear as they happen; compact events
           go to SQLite and the full transcript is kept when the session goes idle.
         </p>
       </div>
       <figure class="shot">
-        <img src="screenshots/chat.png" alt="A session transcript showing collapsed tool calls for a GitHub lookup, a file read and a test run, followed by the agent's written review." loading="lazy" width="1440" height="900">
-        <figcaption>A code-review session — tool calls collapse, the answer stays readable</figcaption>
+        <img src="screenshots/chat.png" data-i18n-alt="f.stream.alt" alt="A session transcript showing collapsed tool calls for a GitHub lookup, a file read and a test run, followed by the agent's written review." loading="lazy" width="1440" height="900">
+        <figcaption data-i18n="f.stream.cap">A code-review session — tool calls collapse, the answer stays readable</figcaption>
       </figure>
     </div>
 
     <div class="feature">
       <div class="feature__head">
-        <h3 class="section-title" style="font-size:1.15rem">Agents defined once, reused everywhere</h3>
-        <p>
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.agents.h">Agents defined once, reused everywhere</h3>
+        <p data-i18n="f.agents.p">
           An agent is a row in SQLite — model, mode, temperature, permissions, system prompt —
           plus the MCP servers and skills attached to it. At session start that becomes a stock
           <code>opencode.json</code> and a set of markdown files in the worker's workspace.
@@ -522,46 +562,86 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
         </p>
       </div>
       <figure class="shot">
-        <img src="screenshots/agents.png" alt="The agents page listing code-reviewer, general, oncall-triage, release-notes and web-researcher, each with its model, MCP servers and skills." loading="lazy" width="1440" height="900">
-        <figcaption>Agents — model, attached MCP servers and skills on each card</figcaption>
+        <img src="screenshots/agents.png" data-i18n-alt="f.agents.alt" alt="The agents page listing code-reviewer, general, oncall-triage, release-notes and web-researcher, each with its model, MCP servers and skills." loading="lazy" width="1440" height="900">
+        <figcaption data-i18n="f.agents.cap">Agents — model, attached MCP servers and skills on each card</figcaption>
       </figure>
     </div>
 
     <div class="feature">
       <div class="feature__head">
-        <h3 class="section-title" style="font-size:1.15rem">Automation that ships with the box</h3>
-        <p>
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.auto.h">Automation that ships with the box</h3>
+        <p data-i18n="f.auto.p">
           Cron schedules carry a timezone and record every run. Webhooks give any external
           system a URL to start an agent, optionally guarded by a secret, optionally blocking
           until the answer is ready. Telegram runs inside the broker on long polling — no
           public URL, no extra dependency — and streams the reply by editing the bot's message.
+          Point it at a notification chat and every scheduled or webhook run reports back
+          there, either always or only when it fails.
         </p>
       </div>
       <figure class="shot">
-        <img src="screenshots/schedules.png" alt="Three cron schedules with their expressions, timezone, next run time and last result." loading="lazy" width="1440" height="900">
-        <figcaption>Schedules — cron with a timezone, next and last run on every card</figcaption>
+        <img src="screenshots/schedules.png" data-i18n-alt="f.auto.alt" alt="Three cron schedules with their expressions, timezone, next run time and last result." loading="lazy" width="1440" height="900">
+        <figcaption data-i18n="f.auto.cap">Schedules — cron with a timezone, next and last run on every card</figcaption>
       </figure>
     </div>
 
     <div class="feature">
       <div class="feature__head">
-        <h3 class="section-title" style="font-size:1.15rem">A browser, a database, an API — one click each</h3>
-        <p>
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.out.h">Events that go out, not just in</h3>
+        <p data-i18n="f.out.p">
+          Outgoing webhooks turn the broker into a source of events instead of only a target.
+          Subscribe a URL to <code>session.completed</code>, <code>session.failed</code>,
+          <code>schedule.fired</code> or <code>webhook.received</code> and it gets a POST with
+          the session summary. Set a secret and the raw body is signed with HMAC-SHA256.
+          Failed deliveries retry with backoff — 1s, 5s, 15s, 60s, 300s — and every attempt,
+          successful or not, stays in the per-webhook delivery log with its response code,
+          ready to be replayed by hand.
+        </p>
+      </div>
+      <pre class="code"><span class="c">POST https://ci.example.com/hooks/vibeprod</span>
+X-Vibeprod-Event: <span class="p">session.completed</span>
+X-Vibeprod-Signature: <span class="p">sha256=…</span>
+
+{"event": <span class="p">"session.completed"</span>,
+ "timestamp": <span class="p">"2026-08-15T09:00:00Z"</span>,
+ "data": {"id": <span class="p">"…"</span>, "title": <span class="p">"Review PR #482"</span>, "result_text": <span class="p">"…"</span>}}</pre>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.files.h">Files that outlive the container</h3>
+        <p data-i18n="f.files.p">
+          A worker's workspace disappears with the worker. Project files don't: every project
+          gets its own bucket in a MinIO container that comes with the compose file, browsable
+          and uploadable from the <strong>Files</strong> page. Agents reach the same storage
+          through the <code>files</code> MCP server in the catalog — one click to attach —
+          whose <code>upload_file</code> tool pushes a file out of the worker and returns a
+          link. Together with Playwright and the bundled <code>screenshot-to-files</code>
+          skill that is a complete loop: take a screenshot, put it in the project, answer with
+          the URL.
+        </p>
+      </div>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.mcp.h">A browser, a database, an API — one click each</h3>
+        <p data-i18n="f.mcp.p">
           The MCP catalog holds reusable servers: ordinary local and remote ones, and Docker
           services that Vibeprod starts on demand. The bundled Playwright service gives any
           agent a real browser in its own container, on a private network the workers share.
         </p>
       </div>
       <figure class="shot">
-        <img src="screenshots/mcp-catalog.png" alt="The MCP catalog listing a built-in Playwright docker service plus GitHub, Postgres and Sentry servers." loading="lazy" width="1440" height="900">
-        <figcaption>MCP catalog — attach any entry to an agent from its card</figcaption>
+        <img src="screenshots/mcp-catalog.png" data-i18n-alt="f.mcp.alt" alt="The MCP catalog listing a built-in Playwright docker service plus GitHub, Postgres and Sentry servers." loading="lazy" width="1440" height="900">
+        <figcaption data-i18n="f.mcp.cap">MCP catalog — attach any entry to an agent from its card</figcaption>
       </figure>
     </div>
 
     <div class="feature">
       <div class="feature__head">
-        <h3 class="section-title" style="font-size:1.15rem">Keys you can actually verify</h3>
-        <p>
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.keys.h">Keys you can actually verify</h3>
+        <p data-i18n="f.keys.p">
           Provider keys live in your database and are injected into workers as environment
           variables. <strong>Check</strong> spins up a throwaway container with the same
           opencode image and your key, confirms the provider registers, lists the models it
@@ -570,26 +650,41 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
         </p>
       </div>
       <figure class="shot">
-        <img src="screenshots/providers.png" alt="The providers page showing Anthropic, DeepSeek and OpenAI, each with a masked key, available models and a successful test call." loading="lazy" width="1440" height="900">
-        <figcaption>Providers — verified against a real container, not a regex</figcaption>
+        <img src="screenshots/providers.png" data-i18n-alt="f.keys.alt" alt="The providers page showing Anthropic, DeepSeek and OpenAI, each with a masked key, available models and a successful test call." loading="lazy" width="1440" height="900">
+        <figcaption data-i18n="f.keys.cap">Providers — verified against a real container, not a regex</figcaption>
       </figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature__head">
+        <h3 class="section-title" style="font-size:1.15rem" data-i18n="f.auth.h">A lock on the front door</h3>
+        <p data-i18n="f.auth.p">
+          Put a login and password in <code>.env</code> and the UI asks for them: pages and the
+          whole API move behind a signed cookie that lasts a week. Webhook endpoints keep their
+          own secret and the operator's MCP endpoint keeps its bearer token, so automation
+          carries on working. Leave both variables empty and nothing changes — no login at all,
+          the way it was. This is one shared account, not user management: there is no user
+          list, no roles, and no audit trail.
+        </p>
+      </div>
     </div>
   </div>
 </section>
 
 <section class="band band--alt">
   <div class="wrap">
-    <p class="eyebrow">The unusual part</p>
-    <h2 class="section-title">The agent configures the platform</h2>
-    <p class="lede">
+    <p class="eyebrow" data-i18n="eyebrow.unusual">The unusual part</p>
+    <h2 class="section-title" data-i18n="op.title">The agent configures the platform</h2>
+    <p class="lede" data-i18n="op.p">
       Vibeprod ships with an operator agent that reaches back into Vibeprod itself through a
       private MCP server living inside the broker. Describe what you want on the home screen —
       <em>“review agent for pull requests, give it GitHub, run it from a webhook”</em> — and it
-      creates the agents, attaches the MCP servers and skills, adds the providers, and wires up
-      the webhook. You watch it happen in a normal session transcript, and nothing gets deleted
+      creates the agents, attaches the MCP servers and skills, adds the providers, checks the
+      keys, wires up the webhook and the schedule, and can put files into the project's storage
+      on the way. You watch it happen in a normal session transcript, and nothing gets deleted
       without your say-so.
     </p>
-    <p class="table-note" style="margin-top:1.1rem">
+    <p class="table-note" style="margin-top:1.1rem" data-i18n="op.note">
       The operator's MCP endpoint is not in the catalog and cannot be attached to other agents:
       its URL and bearer secret are injected only into operator sessions.
     </p>
@@ -598,12 +693,13 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 
 <section class="band" id="comparison">
   <div class="wrap">
-    <p class="eyebrow">Comparison</p>
-    <h2 class="section-title">Where Vibeprod wins, and where it doesn't</h2>
-    <p class="lede" style="margin-bottom:2rem">
+    <p class="eyebrow" data-i18n="eyebrow.cmp">Comparison</p>
+    <h2 class="section-title" data-i18n="cmp.title">Where Vibeprod wins, and where it doesn't</h2>
+    <p class="lede" style="margin-bottom:2rem" data-i18n="cmp.lede">
       This is a small project, not a competitor to funded platforms on breadth or maturity.
-      It wins on one axis — self-hosted automation with no cloud tier — and loses badly on
-      another: it has no authentication or multi-user support at all.
+      It wins on one axis — self-hosted automation with no cloud tier — and loses on another:
+      the login it now has is a single shared account, with no users, roles or audit trail
+      behind it.
     </p>
 
     <div class="table-scroll">
@@ -620,78 +716,83 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
         </thead>
         <tbody>
           <tr>
-            <th scope="row">License</th>
-            <td class="is-us">MIT</td><td>MIT</td><td>MIT</td><td>Apache-2.0</td><td class="n">Proprietary</td>
+            <th scope="row" data-i18n="cmp.r.license">License</th>
+            <td class="is-us">MIT</td><td>MIT</td><td>MIT</td><td>Apache-2.0</td><td class="n" data-i18n="v.proprietary">Proprietary</td>
           </tr>
           <tr>
-            <th scope="row">Self-hosted</th>
-            <td class="is-us"><span class="y">Only option</span></td><td>Yes, plus a managed cloud</td><td>Yes</td><td>Yes</td><td class="n">No</td>
+            <th scope="row" data-i18n="cmp.r.selfhosted">Self-hosted</th>
+            <td class="is-us" data-i18n="v.only"><span class="y">Only option</span></td><td data-i18n="v.yes.cloud">Yes, plus a managed cloud</td><td data-i18n="v.yes">Yes</td><td data-i18n="v.yes">Yes</td><td class="n" data-i18n="v.no">No</td>
           </tr>
           <tr>
-            <th scope="row">Web UI over many sessions</th>
-            <td class="is-us"><span class="y">Yes</span></td><td><span class="y">Yes</span></td><td class="n">No — TUI and serve API</td><td class="n">No — desktop and CLI</td><td>Yes, vendor-hosted</td>
+            <th scope="row" data-i18n="cmp.r.webui">Web UI over many sessions</th>
+            <td class="is-us" data-i18n="v.yes.y"><span class="y">Yes</span></td><td data-i18n="v.yes.y"><span class="y">Yes</span></td><td class="n" data-i18n="v.no.tui">No — TUI and serve API</td><td class="n" data-i18n="v.no.desktop">No — desktop and CLI</td><td data-i18n="v.yes.vendor">Yes, vendor-hosted</td>
           </tr>
           <tr>
-            <th scope="row">Container per session</th>
-            <td class="is-us"><span class="y">Yes</span></td><td><span class="y">Yes</span></td><td class="n">Runs on the host</td><td class="n">Runs on the host</td><td>Vendor sandbox</td>
+            <th scope="row" data-i18n="cmp.r.container">Container per session</th>
+            <td class="is-us" data-i18n="v.yes.y"><span class="y">Yes</span></td><td data-i18n="v.yes.y"><span class="y">Yes</span></td><td class="n" data-i18n="v.onhost">Runs on the host</td><td class="n" data-i18n="v.onhost">Runs on the host</td><td data-i18n="v.sandbox">Vendor sandbox</td>
           </tr>
           <tr>
-            <th scope="row">Cron schedules</th>
-            <td class="is-us"><span class="y">Built in</span></td><td class="q">Cloud tier</td><td class="n">No</td><td class="n">No</td><td class="q">Varies</td>
+            <th scope="row" data-i18n="cmp.r.cron">Cron schedules</th>
+            <td class="is-us" data-i18n="v.builtin"><span class="y">Built in</span></td><td class="q" data-i18n="v.cloudtier">Cloud tier</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="q" data-i18n="v.varies">Varies</td>
           </tr>
           <tr>
-            <th scope="row">Inbound webhooks</th>
-            <td class="is-us"><span class="y">Built in</span></td><td class="q">Cloud tier</td><td class="n">No</td><td class="n">No</td><td class="q">Varies</td>
+            <th scope="row" data-i18n="cmp.r.inhooks">Inbound webhooks</th>
+            <td class="is-us" data-i18n="v.builtin"><span class="y">Built in</span></td><td class="q" data-i18n="v.cloudtier">Cloud tier</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="q" data-i18n="v.varies">Varies</td>
           </tr>
           <tr>
-            <th scope="row">Chat channel (Telegram)</th>
-            <td class="is-us"><span class="y">Yes</span></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td>
+            <th scope="row" data-i18n="cmp.r.outhooks">Outbound webhooks</th>
+            <td class="is-us" data-i18n="v.builtin"><span class="y">Built in</span></td><td class="q" data-i18n="v.varies">Varies</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="q" data-i18n="v.varies">Varies</td>
           </tr>
           <tr>
-            <th scope="row">MCP support</th>
-            <td class="is-us"><span class="y">Yes, shared catalog</span></td><td>Yes</td><td>Yes</td><td>Yes</td><td class="q">Varies</td>
+            <th scope="row" data-i18n="cmp.r.telegram">Chat channel (Telegram)</th>
+            <td class="is-us" data-i18n="v.yes.y"><span class="y">Yes</span></td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td>
           </tr>
           <tr>
-            <th scope="row">Agent that configures the platform</th>
-            <td class="is-us"><span class="y">Yes</span></td><td class="n">No</td><td class="n">No</td><td class="n">No</td><td class="n">No</td>
+            <th scope="row" data-i18n="cmp.r.mcp">MCP support</th>
+            <td class="is-us" data-i18n="v.yes.catalog"><span class="y">Yes, shared catalog</span></td><td data-i18n="v.yes">Yes</td><td data-i18n="v.yes">Yes</td><td data-i18n="v.yes">Yes</td><td class="q" data-i18n="v.varies">Varies</td>
           </tr>
           <tr>
-            <th scope="row">Bring your own key</th>
-            <td class="is-us"><span class="y">Yes</span></td><td>Yes</td><td>Yes</td><td>Yes</td><td class="n">Subscription</td>
+            <th scope="row" data-i18n="cmp.r.operator">Agent that configures the platform</th>
+            <td class="is-us" data-i18n="v.yes.y"><span class="y">Yes</span></td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td><td class="n" data-i18n="v.no">No</td>
           </tr>
           <tr>
-            <th scope="row">Git and pull-request workflow</th>
-            <td class="is-us q">Via the agent and git</td><td><span class="y">First-class</span></td><td><span class="y">First-class</span></td><td>Yes</td><td><span class="y">First-class</span></td>
+            <th scope="row" data-i18n="cmp.r.byok">Bring your own key</th>
+            <td class="is-us" data-i18n="v.yes.y"><span class="y">Yes</span></td><td data-i18n="v.yes">Yes</td><td data-i18n="v.yes">Yes</td><td data-i18n="v.yes">Yes</td><td class="n" data-i18n="v.subscription">Subscription</td>
           </tr>
           <tr>
-            <th scope="row">Auth, multi-user, RBAC</th>
-            <td class="is-us n"><strong>None</strong></td><td>Enterprise tier</td><td class="n">n/a</td><td class="n">n/a</td><td>Yes</td>
+            <th scope="row" data-i18n="cmp.r.git">Git and pull-request workflow</th>
+            <td class="is-us q" data-i18n="v.viaagent">Via the agent and git</td><td data-i18n="v.firstclass"><span class="y">First-class</span></td><td data-i18n="v.firstclass"><span class="y">First-class</span></td><td data-i18n="v.yes">Yes</td><td data-i18n="v.firstclass"><span class="y">First-class</span></td>
           </tr>
           <tr>
-            <th scope="row">Maturity</th>
-            <td class="is-us q">Early</td><td>Large, funded</td><td>Very large</td><td>Linux Foundation</td><td>Commercial</td>
+            <th scope="row" data-i18n="cmp.r.auth">Auth, multi-user, RBAC</th>
+            <td class="is-us q" data-i18n="v.onelogin">One shared login, <strong>no roles</strong></td><td data-i18n="v.enterprise">Enterprise tier</td><td class="n">n/a</td><td class="n">n/a</td><td data-i18n="v.yes">Yes</td>
+          </tr>
+          <tr>
+            <th scope="row" data-i18n="cmp.r.maturity">Maturity</th>
+            <td class="is-us q" data-i18n="v.early">Early</td><td data-i18n="v.large">Large, funded</td><td data-i18n="v.verylarge">Very large</td><td>Linux Foundation</td><td data-i18n="v.commercial">Commercial</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="table-note">
+    <p class="table-note" data-i18n="cmp.note">
       Compiled August 2026 from public documentation. Hosted products move quickly —
       check the vendor's own pages before making a decision on this table alone.
     </p>
 
     <div class="verdicts">
       <div class="verdict verdict--yes">
-        <h3>Pick Vibeprod if</h3>
-        <p>
-          You want agents on your own hardware, started by cron, webhooks and chat, with
-          per-session isolation and API keys that never leave the box.
+        <h3 data-i18n="verdict.yes.h">Pick Vibeprod if</h3>
+        <p data-i18n="verdict.yes.p">
+          You want agents on your own hardware, started by cron, webhooks and chat, reporting
+          back over webhooks and Telegram, with per-session isolation and API keys that never
+          leave the box.
         </p>
       </div>
       <div class="verdict verdict--no">
-        <h3>Pick something else if</h3>
-        <p>
-          You need access control for a team, a hosted service with an SLA, or a mature
-          pull-request review workflow out of the box.
+        <h3 data-i18n="verdict.no.h">Pick something else if</h3>
+        <p data-i18n="verdict.no.p">
+          You need per-user access control for a team, a hosted service with an SLA, or a
+          mature pull-request review workflow out of the box.
         </p>
       </div>
     </div>
@@ -700,9 +801,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 
 <section class="band band--alt" id="quickstart">
   <div class="wrap">
-    <p class="eyebrow">Quick start</p>
-    <h2 class="section-title">Running in about a minute</h2>
-    <p class="lede" style="margin-bottom:1.75rem">
+    <p class="eyebrow" data-i18n="eyebrow.qs">Quick start</p>
+    <h2 class="section-title" data-i18n="qs.title">Running in about a minute</h2>
+    <p class="lede" style="margin-bottom:1.75rem" data-i18n="qs.lede">
       You need Docker and Python 3.11+ — or just Docker. The first start pulls the opencode
       image and builds a worker image on top of it, with git and openssh so agents can work
       with repositories.
@@ -710,16 +811,16 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
 
     <div class="split">
       <div>
-        <p class="eyebrow">On the host</p>
-        <pre class="code"><span class="c"># clone, configure, run</span>
+        <p class="eyebrow" data-i18n="qs.host">On the host</p>
+        <pre class="code" data-i18n="qs.host.code"><span class="c"># clone, configure, run</span>
 git clone https://github.com/<span class="p">katskov-dev</span>/vibeprod.git
 cd vibeprod
 cp .env.example .env   <span class="c"># add one provider key</span>
 ./run.sh               <span class="c"># → localhost:8000</span></pre>
       </div>
       <div>
-        <p class="eyebrow">In a container</p>
-        <pre class="code"><span class="c"># same thing, dockerised</span>
+        <p class="eyebrow" data-i18n="qs.docker">In a container</p>
+        <pre class="code" data-i18n="qs.docker.code"><span class="c"># same thing, dockerised</span>
 git clone https://github.com/<span class="p">katskov-dev</span>/vibeprod.git
 cd vibeprod
 cp .env.example .env
@@ -727,19 +828,29 @@ docker compose up --build</pre>
       </div>
     </div>
 
-    <p class="eyebrow" style="margin-top:2rem">Start an agent from anywhere</p>
+    <p class="eyebrow" style="margin-top:2rem" data-i18n="qs.extras">Ask for a login, and for file storage</p>
+    <pre class="code" data-i18n="qs.extras.code"><span class="c"># .env — both empty means no login at all</span>
+VIBEPROD_LOGIN=<span class="p">admin</span>
+VIBEPROD_PASSWORD=<span class="p">change-me</span>
+
+<span class="c"># project files live in MinIO; compose brings it up on loopback</span>
+docker compose up -d minio   <span class="c"># API 9000 · console 9001</span></pre>
+
+    <p class="eyebrow" style="margin-top:2rem" data-i18n="qs.curl">Start an agent from anywhere</p>
     <pre class="code">curl -X POST http://localhost:8000/api/webhooks/<span class="p">pr-review</span>/run \
      -H <span class="p">'X-Webhook-Secret: …'</span> \
      -H <span class="p">'Content-Type: application/json'</span> \
      -d <span class="p">'{"prompt": "Review the diff in PR #482"}'</span></pre>
 
     <div class="warn">
-      <h3>Before you put this on a server</h3>
-      <p>
-        The broker has no authentication, and it drives the Docker daemon — so anyone who can
-        reach its port can run code as root on the host. Compose binds it to
-        <code>127.0.0.1</code> for that reason. To reach it remotely, put it behind a reverse
-        proxy that authenticates, or a VPN. The details are in
+      <h3 data-i18n="warn.h">Before you put this on a server</h3>
+      <p data-i18n="warn.p">
+        The login is a single shared password, and the broker drives the Docker daemon — so
+        anyone who gets past it can run code as root on the host. Compose binds the port to
+        <code>127.0.0.1</code> for that reason, and leaving <code>VIBEPROD_LOGIN</code> unset
+        means no login at all. Treat the login as a lock on an internal door, not as a reason
+        to expose the port: to reach it remotely, still put it behind a reverse proxy with TLS,
+        or a VPN. The details are in
         <a href="https://github.com/katskov-dev/vibeprod/blob/main/SECURITY.md">SECURITY.md</a>.
       </p>
     </div>
@@ -748,10 +859,193 @@ docker compose up --build</pre>
 
 <footer>
   <div class="wrap">
-    <span>Vibeprod by Pavel Katskov · MIT licensed · built on <a href="https://github.com/sst/opencode">opencode</a></span>
+    <span data-i18n="footer.by">Vibeprod by Pavel Katskov · MIT licensed · built on <a href="https://github.com/sst/opencode">opencode</a></span>
     <span><a href="https://github.com/katskov-dev/vibeprod">github.com/katskov-dev/vibeprod</a></span>
   </div>
 </footer>
+
+<script>
+/* Двуязычность без сборки: английский лежит в разметке, русский — в словаре ниже.
+   Ключ — атрибут data-i18n (innerHTML) или data-i18n-alt (alt у картинки). */
+const RU = {
+  "__title": "Vibeprod — self-hosted-панель управления для агентов opencode",
+  "__desc": "Запускайте ИИ-агентов на своей машине: веб-интерфейс над множеством сессий, по docker-контейнеру на каждую, расписания, входящие и исходящие вебхуки, Telegram, файлы проектов и вход по паролю. Лицензия MIT.",
+
+  "hero.thesis": "Ваши агенты. Ваша машина. Ваши ключи.",
+  "hero.sub": "Self-hosted-панель управления для <a href=\"https://github.com/sst/opencode\">opencode</a>. Один веб-интерфейс над множеством сессий — каждая в своём docker-контейнере — запуск руками, по расписанию, вебхуком или из чата.",
+  "btn.github": "Открыть на GitHub",
+  "btn.quickstart": "Быстрый старт",
+  "btn.compare": "Сравнение",
+  "badge.mit": "Лицензия MIT",
+  "badge.loc": "~6k строк Python",
+  "badge.sqlite": "SQLite, без очередей",
+  "badge.byok": "Свои ключи",
+  "badge.login": "Вход по паролю",
+
+  "dispatch.triggers": "Триггеры",
+  "src.manual": "<b>вручную</b><span>вы, в веб-интерфейсе</span>",
+  "src.schedule": "<b>расписание</b><span>cron с таймзоной</span>",
+  "src.webhook": "<b>вебхук</b><span>POST из CI или откуда угодно</span>",
+  "src.telegram": "<b>telegram</b><span>сообщение вашему боту</span>",
+  "dispatch.workers": "По контейнеру на сессию",
+  "worker.1": "code-reviewer <em>свой workspace · свой порт · свой токен</em>",
+  "worker.2": "nightly-tests <em>история — в docker-томе</em>",
+  "worker.3": "oncall-triage <em>убивается по таймауту простоя</em>",
+  "dispatch.note": "ничего не покидает машину — ни код, ни ключи",
+
+  "eyebrow.problem": "Проблема",
+  "problem.title": "Терминальные агенты не запускают себя сами",
+  "problem.p1": "opencode — отличный кодовый агент, и живёт он в терминале: одна сессия, перед вами, пока вы за ней смотрите. Как только нужен второй агент, ночной прогон или ответ на вебхук из CI — вы остаётесь с этим один на один.",
+  "problem.p2": "Хостинговые продукты это решают и берут за это деньги: код уезжает в их песочницу, автоматизация живёт за их подпиской. Vibeprod решает то же самое на вашем железе. Это один процесс FastAPI и файл SQLite рядом с ним — без очереди, без Kubernetes, без сборки фронтенда.",
+
+  "eyebrow.what": "Что внутри",
+  "what.title": "Консоль для агентов, которые работают без вас",
+
+  "f.sessions.h": "Все сессии — в одном списке",
+  "f.sessions.p": "У каждой сессии есть метка того, что её запустило, поэтому ночной прогон по расписанию и вопрос из Telegram лежат в одном списке и с одинаковой историей. Воркер можно перезапустить, не потеряв переписку: история живёт в docker-томе, а не в контейнере.",
+  "f.sessions.alt": "Список сессий: запуски с метками telegram, расписание и вебхук, рядом их статус.",
+  "f.sessions.cap": "Сессии — метка триггера слева, живой статус справа",
+
+  "f.stream.h": "Видно, как агент думает",
+  "f.stream.p": "Брокер читает SSE-поток воркера и раздаёт его по WebSocket. Вызовы инструментов, блоки рассуждений и списки задач появляются по мере работы; компактные события пишутся в SQLite, а полная стенограмма сохраняется, когда сессия уходит в простой.",
+  "f.stream.alt": "Стенограмма сессии: свёрнутые вызовы инструментов — запрос в GitHub, чтение файла, прогон тестов — и написанное агентом ревью.",
+  "f.stream.cap": "Сессия код-ревью — вызовы инструментов свёрнуты, ответ читается",
+
+  "f.agents.h": "Агент описан один раз — используется везде",
+  "f.agents.p": "Агент — строка в SQLite: модель, mode, temperature, permissions, системный промпт, плюс привязанные MCP-серверы и скиллы. При старте сессии из этого собирается обычный <code>opencode.json</code> и набор markdown-файлов в workspace воркера. Ничего проприетарного: воркер видит стандартный конфиг opencode.",
+  "f.agents.alt": "Страница агентов: code-reviewer, general, oncall-triage, release-notes и web-researcher — у каждого своя модель, MCP-серверы и скиллы.",
+  "f.agents.cap": "Агенты — модель, привязанные MCP-серверы и скиллы на каждой карточке",
+
+  "f.auto.h": "Автоматизация из коробки",
+  "f.auto.p": "Расписания — cron с таймзоной, каждый запуск записывается. Вебхуки дают внешним системам URL, чтобы запустить агента: по желанию — с секретом, по желанию — с ожиданием готового ответа. Telegram работает внутри брокера на long polling — без публичного URL и лишних зависимостей — и отдаёт ответ, редактируя сообщение бота на месте. Укажите чат для уведомлений, и каждый запуск по расписанию или вебхуку отчитается туда: всегда или только при ошибке.",
+  "f.auto.alt": "Три расписания с cron-выражениями, таймзоной, временем следующего запуска и результатом последнего.",
+  "f.auto.cap": "Расписания — cron с таймзоной, следующий и последний запуск на карточке",
+
+  "f.out.h": "События не только приходят, но и уходят",
+  "f.out.p": "Исходящие вебхуки превращают брокер из приёмника событий в источник. Подпишите URL на <code>session.completed</code>, <code>session.failed</code>, <code>schedule.fired</code> или <code>webhook.received</code> — и он получит POST со сводкой сессии. Задайте секрет, и тело запроса будет подписано HMAC-SHA256. Неудачные доставки повторяются с нарастающей паузой — 1s, 5s, 15s, 60s, 300s — и каждая попытка, удачная или нет, остаётся в журнале доставок с кодом ответа, откуда её можно повторить руками.",
+
+  "f.files.h": "Файлы, которые переживают контейнер",
+  "f.files.p": "Workspace воркера исчезает вместе с воркером. Файлы проекта — нет: у каждого проекта свой бакет в MinIO, который поднимается тем же compose, а смотреть и загружать их можно со страницы <strong>Файлы</strong>. Агенты ходят в то же хранилище через MCP-сервер <code>files</code> из каталога — подключается одной кнопкой, — его инструмент <code>upload_file</code> выталкивает файл из воркера и возвращает ссылку. Вместе с playwright и встроенным скиллом <code>screenshot-to-files</code> получается замкнутый цикл: снял скриншот, положил в проект, ответил ссылкой.",
+
+  "f.mcp.h": "Браузер, база, API — по одной кнопке",
+  "f.mcp.p": "Каталог MCP хранит переиспользуемые серверы: обычные локальные и удалённые, а также docker-сервисы, которые Vibeprod поднимает по требованию. Встроенный сервис playwright даёт любому агенту настоящий браузер в отдельном контейнере, в приватной сети, общей для воркеров.",
+  "f.mcp.alt": "Каталог MCP: встроенный docker-сервис playwright и серверы GitHub, Postgres и Sentry.",
+  "f.mcp.cap": "Каталог MCP — привязать запись к агенту прямо с карточки",
+
+  "f.keys.h": "Ключи, которые можно проверить",
+  "f.keys.p": "Ключи провайдеров лежат в вашей базе и попадают в воркеры переменными окружения. <strong>Проверка</strong> поднимает одноразовый контейнер с тем же образом opencode и вашим ключом, убеждается, что провайдер зарегистрировался, показывает список моделей и делает настоящий запрос на генерацию — ровно тот путь, которым пойдёт воркер. Плохой ключ отвалится здесь, а не посреди ночного прогона.",
+  "f.keys.alt": "Страница провайдеров: Anthropic, DeepSeek и OpenAI — у каждого замаскированный ключ, доступные модели и успешный тестовый вызов.",
+  "f.keys.cap": "Провайдеры — проверка настоящим контейнером, а не регуляркой",
+
+  "f.auth.h": "Замок на входной двери",
+  "f.auth.p": "Впишите логин и пароль в <code>.env</code> — и интерфейс начнёт их спрашивать: страницы и весь API уходят за подписанную cookie, живущую неделю. У эндпоинтов вебхуков остаётся свой секрет, у MCP оператора — свой bearer-токен, так что автоматизация продолжает работать. Оставьте обе переменные пустыми — ничего не изменится, входа не будет, как и раньше. Это одна общая учётка, а не управление пользователями: ни списка пользователей, ни ролей, ни журнала действий.",
+
+  "eyebrow.unusual": "Необычная часть",
+  "op.title": "Агент настраивает платформу",
+  "op.p": "В комплекте идёт агент-оператор, который дотягивается до самого Vibeprod через приватный MCP-сервер внутри брокера. Опишите на главной, что нужно — <em>«агент для ревью пул-реквестов, дай ему GitHub, запускай вебхуком»</em> — и он создаст агентов, подключит MCP-серверы и скиллы, добавит провайдеров, проверит ключи, настроит вебхук и расписание, а по дороге может положить файлы в хранилище проекта. Всё это видно в обычной стенограмме сессии, и ничего не удаляется без вашего согласия.",
+  "op.note": "Эндпоинт MCP оператора не лежит в каталоге и не привязывается к другим агентам: его URL и bearer-секрет попадают только в сессии оператора.",
+
+  "eyebrow.cmp": "Сравнение",
+  "cmp.title": "Где Vibeprod выигрывает, а где нет",
+  "cmp.lede": "Это маленький проект, а не конкурент профинансированным платформам по широте и зрелости. Он выигрывает по одной оси — self-hosted-автоматизация без облачного тарифа — и проигрывает по другой: появившийся вход это одна общая учётка, без пользователей, ролей и журнала действий.",
+  "cmp.r.license": "Лицензия",
+  "cmp.r.selfhosted": "Self-hosted",
+  "cmp.r.webui": "Веб-интерфейс над множеством сессий",
+  "cmp.r.container": "Контейнер на сессию",
+  "cmp.r.cron": "Расписания (cron)",
+  "cmp.r.inhooks": "Входящие вебхуки",
+  "cmp.r.outhooks": "Исходящие вебхуки",
+  "cmp.r.telegram": "Чат-канал (Telegram)",
+  "cmp.r.mcp": "Поддержка MCP",
+  "cmp.r.operator": "Агент, настраивающий платформу",
+  "cmp.r.byok": "Свои ключи",
+  "cmp.r.git": "Git и пул-реквесты",
+  "cmp.r.auth": "Авторизация, пользователи, роли",
+  "cmp.r.maturity": "Зрелость",
+  "v.proprietary": "Проприетарно",
+  "v.only": "<span class=\"y\">Единственный вариант</span>",
+  "v.yes.cloud": "Да, плюс облако",
+  "v.yes": "Да",
+  "v.no": "Нет",
+  "v.yes.y": "<span class=\"y\">Да</span>",
+  "v.no.tui": "Нет — TUI и serve API",
+  "v.no.desktop": "Нет — десктоп и CLI",
+  "v.yes.vendor": "Да, у вендора",
+  "v.onhost": "Работает на хосте",
+  "v.sandbox": "Песочница вендора",
+  "v.builtin": "<span class=\"y\">Встроено</span>",
+  "v.cloudtier": "Облачный тариф",
+  "v.varies": "По-разному",
+  "v.yes.catalog": "<span class=\"y\">Да, общий каталог</span>",
+  "v.subscription": "По подписке",
+  "v.viaagent": "Через агента и git",
+  "v.firstclass": "<span class=\"y\">Первоклассно</span>",
+  "v.onelogin": "Одна общая учётка, <strong>без ролей</strong>",
+  "v.enterprise": "Enterprise-тариф",
+  "v.early": "Ранняя",
+  "v.large": "Большой, с деньгами",
+  "v.verylarge": "Очень большой",
+  "v.commercial": "Коммерческие",
+  "cmp.note": "Собрано в августе 2026 года по публичной документации. Хостинговые продукты меняются быстро — проверьте страницы вендоров, прежде чем решать по одной этой таблице.",
+  "verdict.yes.h": "Берите Vibeprod, если",
+  "verdict.yes.p": "Хотите агентов на своём железе, запускаемых по расписанию, вебхуками и из чата, с отчётами через вебхуки и Telegram, с изоляцией по сессиям и ключами, которые не покидают машину.",
+  "verdict.no.h": "Берите другое, если",
+  "verdict.no.p": "Нужен доступ по пользователям для команды, хостинг с SLA или зрелый процесс ревью пул-реквестов из коробки.",
+
+  "eyebrow.qs": "Быстрый старт",
+  "qs.title": "Запуск примерно за минуту",
+  "qs.lede": "Нужны Docker и Python 3.11+ — или только Docker. Первый запуск скачивает образ opencode и собирает поверх него образ воркера, с git и openssh, чтобы агенты могли работать с репозиториями.",
+  "qs.host": "На хосте",
+  "qs.host.code": "<span class=\"c\"># склонировать, настроить, запустить</span>\ngit clone https://github.com/<span class=\"p\">katskov-dev</span>/vibeprod.git\ncd vibeprod\ncp .env.example .env   <span class=\"c\"># добавьте ключ провайдера</span>\n./run.sh               <span class=\"c\"># → localhost:8000</span>",
+  "qs.docker": "В контейнере",
+  "qs.docker.code": "<span class=\"c\"># то же самое, в docker</span>\ngit clone https://github.com/<span class=\"p\">katskov-dev</span>/vibeprod.git\ncd vibeprod\ncp .env.example .env\ndocker compose up --build",
+  "qs.extras": "Попросить логин и хранилище файлов",
+  "qs.extras.code": "<span class=\"c\"># .env — если обе пустые, входа нет</span>\nVIBEPROD_LOGIN=<span class=\"p\">admin</span>\nVIBEPROD_PASSWORD=<span class=\"p\">change-me</span>\n\n<span class=\"c\"># файлы проектов живут в MinIO; compose поднимает его на loopback</span>\ndocker compose up -d minio   <span class=\"c\"># API 9000 · консоль 9001</span>",
+  "qs.curl": "Запустить агента откуда угодно",
+
+  "warn.h": "Прежде чем ставить это на сервер",
+  "warn.p": "Вход — это один общий пароль, а брокер управляет docker-демоном: кто прошёл дверь, тот выполняет код от root на хосте. Именно поэтому compose привязывает порт к <code>127.0.0.1</code>, а без <code>VIBEPROD_LOGIN</code> входа нет вовсе. Считайте вход замком на внутренней двери, а не поводом выставлять порт наружу: снаружи всё равно держите его за обратным прокси с TLS или в VPN. Подробности — в <a href=\"https://github.com/katskov-dev/vibeprod/blob/main/SECURITY.md\">SECURITY.md</a>.",
+
+  "footer.by": "Vibeprod, автор Pavel Katskov · лицензия MIT · собран на <a href=\"https://github.com/sst/opencode\">opencode</a>"
+};
+
+(function () {
+  const nodes = document.querySelectorAll("[data-i18n], [data-i18n-alt]");
+  const desc = document.querySelector('meta[name="description"]');
+  const EN = { "__title": document.title, "__desc": desc.content };
+  nodes.forEach(el => {
+    if (el.dataset.i18n) EN[el.dataset.i18n] = el.innerHTML;
+    if (el.dataset.i18nAlt) EN[el.dataset.i18nAlt] = el.alt;
+  });
+
+  function apply(lang) {
+    const dict = lang === "ru" ? RU : EN;
+    nodes.forEach(el => {
+      const k = el.dataset.i18n;
+      const ka = el.dataset.i18nAlt;
+      if (k && dict[k] !== undefined) el.innerHTML = dict[k];
+      if (ka && dict[ka] !== undefined) el.alt = dict[ka];
+    });
+    document.title = dict["__title"] || EN["__title"];
+    desc.content = dict["__desc"] || EN["__desc"];
+    document.documentElement.lang = lang;
+    document.querySelectorAll(".langsw button").forEach(b => {
+      b.setAttribute("aria-pressed", String(b.dataset.lang === lang));
+    });
+    try { localStorage.setItem("vibeprod-lang", lang); } catch (e) {}
+  }
+
+  let saved = null;
+  try { saved = localStorage.getItem("vibeprod-lang"); } catch (e) {}
+  const fromHash = location.hash === "#ru" || location.hash === "#en" ? location.hash.slice(1) : null;
+  const fromNav = (navigator.language || "").toLowerCase().startsWith("ru") ? "ru" : "en";
+  apply(fromHash || saved || fromNav);
+
+  document.querySelectorAll(".langsw button").forEach(b => {
+    b.addEventListener("click", () => apply(b.dataset.lang));
+  });
+})();
+</script>
 
 </body>
 </html>
