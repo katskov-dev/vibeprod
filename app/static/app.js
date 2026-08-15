@@ -148,6 +148,21 @@ let currentView = 'sessions';
 let currentProject = null;
 let projectsCache = [];
 
+const VIEW_TITLES = {
+  home: 'Начать работу', sessions: 'Сессии', issues: 'Issues', files: 'Файлы',
+  agents: 'Агенты', providers: 'Провайдеры', 'mcp-catalog': 'MCP', skills: 'Скиллы',
+  webhooks: 'Вебхуки', outwebhooks: 'Исходящие', schedules: 'Расписания',
+  channels: 'Каналы', projects: 'Настройки проекта',
+};
+
+function setNavOpen(open) {
+  const sb = $('#sidebar');
+  const ov = $('#nav-overlay');
+  if (!sb) return;
+  sb.classList.toggle('-translate-x-full', !open);
+  if (ov) ov.classList.toggle('hidden', !open);
+}
+
 async function loadProjectMenu() {
   try { projectsCache = await api.get('/api/projects'); } catch { projectsCache = []; }
   const stored = localStorage.getItem('vibeprod-project');
@@ -217,6 +232,9 @@ function showView(view, arg) {
     b.classList.toggle('bg-neutral-800', active);
     b.classList.toggle('hover:bg-neutral-800/60', !active);
   });
+  const titleEl = $('#mobile-view-title');
+  if (titleEl) titleEl.textContent = VIEW_TITLES[view] || '';
+  setNavOpen(false);
   window.history.pushState({ view, arg }, '', `#${view}${arg ? '/' + arg : ''}`);
   if (view === 'home') renderHome();
   else if (view === 'sessions') renderSessions(arg);
@@ -236,6 +254,8 @@ $('#nav').onclick = (e) => {
   const btn = e.target.closest('.nav-btn');
   if (btn) showView(btn.dataset.view);
 };
+$('#nav-toggle').onclick = () => setNavOpen(true);
+$('#nav-overlay').onclick = () => setNavOpen(false);
 $('#project-trigger').onclick = (e) => {
   e.stopPropagation();
   setProjectMenu($('#project-menu').classList.contains('hidden'));

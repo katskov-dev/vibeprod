@@ -40,10 +40,34 @@
   .md .md-img-size { color: #6b7280; }
   .msg-actions { opacity: 0; transition: opacity 0.12s; }
   .group:hover .msg-actions, .group:focus-within .msg-actions { opacity: 1; }
+  /* ── мобильная адаптация ─────────────────────────────────────────────── */
+  @media (max-width: 767px) {
+    * { -webkit-tap-highlight-color: transparent; }
+    #main .px-6 { padding-left: 0.9rem; padding-right: 0.9rem; }
+    #main .p-6 { padding: 0.9rem; }
+    #main .p-5 { padding: 0.9rem; }
+    #main .py-4 { padding-top: 0.7rem; padding-bottom: 0.7rem; }
+    #main .py-3 { padding-top: 0.6rem; padding-bottom: 0.6rem; }
+    /* заголовки страниц и строки списков переносятся, а не сжимаются */
+    #main div[class~="justify-between"] { flex-wrap: wrap; row-gap: 0.4rem; }
+    #main div[class~="items-center"][class~="gap-2"],
+    #main div[class~="items-center"][class~="gap-3"],
+    #main div[class~="items-center"][class~="gap-4"],
+    #main div[class~="items-start"][class~="gap-2"],
+    #main div[class~="items-start"][class~="gap-3"] { flex-wrap: wrap; row-gap: 0.4rem; }
+    /* сообщения чата на всю ширину */
+    #chat-messages { padding: 0.7rem; }
+    #chat-messages [class~="max-w-[80%]"],
+    #chat-messages [class~="max-w-[85%]"] { max-width: 100% !important; }
+    /* модалки и лайтбокс */
+    #modal-overlay { padding: 0.5rem; }
+    #imgbox-bar div.flex { flex-wrap: wrap; row-gap: 0.3rem; }
+    .md pre { overflow-x: auto; }
+  }
 </style>
 </head>
 <body class="bg-neutral-950 text-neutral-200 h-screen flex overflow-hidden">
-  <aside class="w-56 shrink-0 border-r border-neutral-800 flex flex-col">
+  <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 md:static md:w-56 shrink-0 border-r border-neutral-800 flex flex-col bg-neutral-950 -translate-x-full md:translate-x-0 transition-transform duration-200">
     <div class="p-4 border-b border-neutral-800">
       <div class="font-semibold text-lg">Vibeprod</div>
       <div class="text-xs text-neutral-500">opencode workers</div>
@@ -85,7 +109,15 @@
       <button id="logout-btn" class="hidden mt-2 px-2 py-1 rounded border border-neutral-800 hover:bg-neutral-800">Выйти</button>
     </div>
   </aside>
-  <main class="flex-1 overflow-hidden" id="main"></main>
+  <div id="nav-overlay" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden"></div>
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="md:hidden flex items-center gap-3 px-3 py-2.5 border-b border-neutral-800 shrink-0">
+      <button id="nav-toggle" class="px-2.5 py-1.5 rounded-lg border border-neutral-700 text-neutral-300 text-base leading-none" aria-label="Меню">☰</button>
+      <div class="font-semibold">Vibeprod</div>
+      <span id="mobile-view-title" class="text-sm text-neutral-500 truncate"></span>
+    </header>
+    <main class="flex-1 overflow-hidden min-w-0" id="main"></main>
+  </div>
 
   <div id="modal-root"></div>
   <div id="toast-root" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
