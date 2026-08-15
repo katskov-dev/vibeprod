@@ -26,8 +26,7 @@ def init_db():
             cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if "project_id" not in cols:
                 conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN project_id INTEGER "
-                    f"REFERENCES projects(id) ON DELETE SET NULL"
+                    f"ALTER TABLE {table} ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL"
                 )
         scols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
         if "source" not in scols:
@@ -43,7 +42,9 @@ def init_db():
             conn.execute("ALTER TABLE agents ADD COLUMN is_guardian INTEGER DEFAULT 0")
         tgcols = {r["name"] for r in conn.execute("PRAGMA table_info(telegram_chats)").fetchall()}
         if "project_id" not in tgcols:
-            conn.execute("ALTER TABLE telegram_chats ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL")
+            conn.execute(
+                "ALTER TABLE telegram_chats ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL"
+            )
         if not conn.execute("SELECT id FROM mcp_catalog WHERE name='playwright'").fetchone():
             conn.execute(
                 "INSERT INTO mcp_catalog(name, description, kind, type, url, "
@@ -54,17 +55,16 @@ def init_db():
                 "'vibeprod-playwright', 8931, 'vibeprod-mcp', 1)"
             )
         if not conn.execute("SELECT id FROM projects LIMIT 1").fetchone():
-            conn.execute(
-                "INSERT INTO projects(name, description) VALUES('Основной', 'Проект по умолчанию')"
-            )
+            conn.execute("INSERT INTO projects(name, description) VALUES('Основной', 'Проект по умолчанию')")
         pid = conn.execute("SELECT id FROM projects ORDER BY id LIMIT 1").fetchone()[0]
         for table in ("agents", "sessions", "schedules", "providers"):
             conn.execute(f"UPDATE {table} SET project_id=? WHERE project_id IS NULL", (pid,))
-        if not conn.execute("SELECT key FROM settings WHERE key='guardian_secret'").fetchone():
-            conn.execute(
-                "INSERT INTO settings(key, value) VALUES('guardian_secret', ?)",
-                (secrets.token_urlsafe(32),),
-            )
+        for key in ("guardian_secret", "auth_secret"):
+            if not conn.execute("SELECT key FROM settings WHERE key=?", (key,)).fetchone():
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES(?, ?)",
+                    (key, secrets.token_urlsafe(32)),
+                )
         if not conn.execute("SELECT id FROM agents WHERE is_guardian=1 LIMIT 1").fetchone():
             from .guardian_prompt import GUARDIAN_SYSTEM_PROMPT
 

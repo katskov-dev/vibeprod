@@ -72,7 +72,10 @@
       <button data-view="projects" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Настройки проекта</button>
       <button data-view="providers" class="nav-btn w-full text-left px-3 py-2 rounded-lg hover:bg-neutral-800/60 pl-6">Провайдеры</button>
     </nav>
-    <div class="mt-auto p-4 text-xs text-neutral-600" id="server-info">загрузка…</div>
+    <div class="mt-auto p-4 text-xs text-neutral-600">
+      <div id="server-info">загрузка…</div>
+      <button id="logout-btn" class="hidden mt-2 px-2 py-1 rounded border border-neutral-800 hover:bg-neutral-800">Выйти</button>
+    </div>
   </aside>
   <main class="flex-1 overflow-hidden" id="main"></main>
 

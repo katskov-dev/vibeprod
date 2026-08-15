@@ -3,6 +3,7 @@
 Docker и ключи провайдеров не нужны — всё, что ходит в докер, на время теста
 заменяется заглушками.
 """
+
 import importlib
 
 import pytest
@@ -47,8 +48,16 @@ def test_index_served(client):
 
 @pytest.mark.parametrize(
     "path",
-    ["/api/projects", "/api/agents", "/api/providers", "/api/sessions",
-     "/api/skills", "/api/mcp-catalog", "/api/webhooks", "/api/schedules"],
+    [
+        "/api/projects",
+        "/api/agents",
+        "/api/providers",
+        "/api/sessions",
+        "/api/skills",
+        "/api/mcp-catalog",
+        "/api/webhooks",
+        "/api/schedules",
+    ],
 )
 def test_collection_endpoints_return_lists(client, path):
     r = client.get(path)
@@ -72,10 +81,67 @@ def test_db_bootstrap_creates_defaults(client):
 def test_guardian_mcp_requires_bearer_secret(client):
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
     assert client.post("/guardian/mcp", json=body).status_code == 401
-    assert client.post(
-        "/guardian/mcp", json=body, headers={"Authorization": "Bearer wrong"}
-    ).status_code == 401
+    assert client.post("/guardian/mcp", json=body, headers={"Authorization": "Bearer wrong"}).status_code == 401
 
 
 def test_unknown_session_is_404(client):
     assert client.get("/api/sessions/does-not-exist").status_code == 404
+
+
+@pytest.fixture()
+def auth_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBEPROD_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("VIBEPROD_LOGIN", "admin")
+    monkeypatch.setenv("VIBEPROD_PASSWORD", "secret")
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+
+    from app import auth as auth_module
+    from app import db as db_module
+
+    importlib.reload(db_module)
+    importlib.reload(auth_module)
+    from app import main as main_module
+
+    importlib.reload(main_module)
+
+    from app import scheduler, session_manager, telegram
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(session_manager, "reconcile", lambda: None)
+    monkeypatch.setattr(session_manager, "reattach_streamers", _noop_async)
+    monkeypatch.setattr(session_manager, "cleanup_loop", _noop_async)
+    monkeypatch.setattr(scheduler, "init_scheduler", lambda loop: None)
+    monkeypatch.setattr(scheduler, "stop_scheduler", lambda: None)
+    monkeypatch.setattr(telegram, "start", _noop_async)
+    monkeypatch.setattr(telegram, "stop", _noop_async)
+
+    with TestClient(main_module.app) as c:
+        yield c
+
+
+def test_auth_redirects_until_login(auth_client):
+    r = auth_client.get("/", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/login"
+    assert auth_client.get("/api/projects").status_code == 401
+
+
+def test_auth_login_flow(auth_client):
+    assert auth_client.post("/api/login", json={"login": "admin", "password": "wrong"}).status_code == 401
+    r = auth_client.post("/api/login", json={"login": "admin", "password": "secret"})
+    assert r.status_code == 200
+    assert r.cookies.get("vibeprod_auth")
+
+    assert auth_client.get("/").status_code == 200
+    assert auth_client.get("/api/projects").status_code == 200
+
+    auth_client.post("/api/logout")
+    assert auth_client.get("/api/projects").status_code == 401
+
+
+def test_auth_keeps_machine_endpoints_public(auth_client):
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert auth_client.post("/guardian/mcp", json=body).status_code == 401  # проверка bearer, не cookie
+    assert auth_client.post("/api/webhooks/nope/run", json={}).status_code == 404  # не 401 от middleware

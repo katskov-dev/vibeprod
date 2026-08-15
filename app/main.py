@@ -4,15 +4,29 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import auth
 from . import db
 from . import scheduler
 from . import session_manager
 from . import telegram
-from .api import agents, catalog, channels, guardian, projects, providers, schedules, sessions, telegram as telegram_api, webhooks, ws
+from .api import (
+    agents,
+    auth as auth_api,
+    catalog,
+    channels,
+    guardian,
+    projects,
+    providers,
+    schedules,
+    sessions,
+    telegram as telegram_api,
+    webhooks,
+    ws,
+)
 from .streamer import streams
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -33,9 +47,11 @@ async def lifespan(app: FastAPI):
         db.execute(
             "INSERT INTO agents(name, description, mode, model, system_prompt, permission, is_default, project_id) "
             "VALUES('general', 'Универсальный агент по умолчанию', 'primary', ?, ?, '\"allow\"', 1, ?)",
-            (os.environ.get("VIBEPROD_DEFAULT_MODEL", "deepseek/deepseek-chat"),
-             "Ты полезный ассистент. Отвечай по-русски, кратко и по делу.",
-             default_project["id"] if default_project else None),
+            (
+                os.environ.get("VIBEPROD_DEFAULT_MODEL", "deepseek/deepseek-chat"),
+                "Ты полезный ассистент. Отвечай по-русски, кратко и по делу.",
+                default_project["id"] if default_project else None,
+            ),
         )
     await asyncio.to_thread(session_manager.reconcile)
     await session_manager.reattach_streamers()
@@ -52,6 +68,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="opencode Vibeprod", lifespan=lifespan)
+app.include_router(auth_api.router)
 app.include_router(agents.router)
 app.include_router(catalog.router)
 app.include_router(channels.router)
@@ -65,10 +82,38 @@ app.include_router(webhooks.router)
 app.include_router(ws.router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/api/auth"}
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    if not auth.ENABLED or request.scope["type"] != "http":
+        return await call_next(request)
+    path = request.url.path
+    if (
+        path in PUBLIC_PATHS
+        or path.startswith("/static/")
+        or path.startswith("/guardian/mcp")
+        or (path.startswith("/api/webhooks/") and path.endswith("/run"))
+    ):
+        return await call_next(request)
+    if auth.check_request(request):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return RedirectResponse("/login")
+
 
 @app.get("/")
 def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if not auth.ENABLED or auth.check_request(request):
+        return RedirectResponse("/")
+    return FileResponse(str(STATIC_DIR / "login.html"))
 
 
 def spawn_start(session_id, prompt, restart=False):

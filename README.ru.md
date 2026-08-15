@@ -186,6 +186,7 @@ SLA или зрелый процесс ревью пул-реквестов.
 | `VIBEPROD_PORT` | `8000` | порт брокера |
 | `VIBEPROD_TZ` | `Europe/Moscow` | таймзона cron-расписаний |
 | `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<порт>/guardian/mcp` | URL guardian MCP так, как его видят воркеры |
+| `VIBEPROD_LOGIN` · `VIBEPROD_PASSWORD` | — | логин и пароль для входа в веб-интерфейс. Оба пусты — вход не требуется |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ALLOWED_USERS` · `TELEGRAM_WEB_URL` | — | фолбэк на первый запуск, если в интерфейсе ничего не настроено |
 | `*_API_KEY` | — | прокидываются внутрь воркеров |
 

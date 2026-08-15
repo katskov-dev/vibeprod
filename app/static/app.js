@@ -10,6 +10,10 @@ const api = {
       opts.body = JSON.stringify(body);
     }
     const r = await fetch(url, opts);
+    if (r.status === 401) {
+      location.href = '/login';
+      throw new Error('Не авторизован');
+    }
     if (!r.ok) {
       let detail = r.statusText;
       try { detail = (await r.json()).detail || detail; } catch {}
@@ -2267,6 +2271,15 @@ function projectModal(p, opts = {}) {
 
 /* ---------- boot ---------- */
 (async function boot() {
+  try {
+    const st = await fetch('/api/auth').then(r => r.json());
+    if (st.enabled) $('#logout-btn').classList.remove('hidden');
+  } catch {}
+  const lb = $('#logout-btn');
+  if (lb) lb.onclick = async () => {
+    try { await api.post('/api/logout'); } catch {}
+    location.href = '/login';
+  };
   await loadProjectMenu();
   try {
     const h = await fetch('/api/sessions').then(r => r.json());

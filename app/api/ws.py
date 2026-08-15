@@ -3,6 +3,7 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from .. import auth
 from .. import db
 from ..streamer import streams
 
@@ -11,6 +12,9 @@ router = APIRouter()
 
 @router.websocket("/ws/sessions/{session_id}")
 async def ws_session(websocket: WebSocket, session_id: str):
+    if auth.ENABLED and not auth.check_request(websocket):
+        await websocket.close(code=4401)
+        return
     row = db.query_one("SELECT * FROM sessions WHERE id=?", (session_id,))
     if not row:
         await websocket.close(code=4404)

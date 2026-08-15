@@ -185,6 +185,7 @@ with an SLA, or a mature pull-request review workflow.
 | `VIBEPROD_PORT` | `8000` | Broker port |
 | `VIBEPROD_TZ` | `Europe/Moscow` | Timezone for cron schedules |
 | `VIBEPROD_GUARDIAN_URL` | `http://host.docker.internal:<port>/guardian/mcp` | Guardian MCP URL as workers see it |
+| `VIBEPROD_LOGIN` · `VIBEPROD_PASSWORD` | — | Login/password for the web UI. Both empty — no login required |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_ALLOWED_USERS` · `TELEGRAM_WEB_URL` | — | First-boot fallback if nothing is configured in the UI |
 | `*_API_KEY` | — | Passed into workers |
 
