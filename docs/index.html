@@ -336,6 +336,470 @@ code, kbd { font-family: var(--display); font-size: 0.88em; }
 .code .c { color: var(--muted); }
 .code .p { color: var(--accent); }
 
+/* ══ use cases: «презентация» из семи слайдов ═══════════════════════════════
+   Каждый кейс — карточка со своим сигнальным цветом (цвет = триггер, тот же
+   код, что на dispatch-доске в шапке): поток слева, макет результата справа. */
+
+.cases-intro { max-width: 64ch; }
+
+/* — указатель кейсов: шесть плиток-якорей — */
+.case-index {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 0.75rem;
+  margin: 2.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: ci;
+}
+.ci {
+  position: relative;
+  display: block;
+  padding: 0.95rem 1rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--sig);
+  border-radius: 3px;
+  text-decoration: none;
+  color: var(--ink);
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.ci:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgb(0 0 0 / 0.07); }
+.ci__top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.ci__ico { width: 17px; height: 17px; color: var(--sig); flex: none; }
+.ci__no {
+  font-family: var(--display);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-left: auto;
+}
+.ci__t { font-size: 0.94rem; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; display: block; }
+.ci__s { font-family: var(--display); font-size: 0.7rem; color: var(--muted); display: block; margin-top: 0.35rem; }
+
+.ci--manual   { --sig: var(--sig-manual); }
+.ci--schedule { --sig: var(--sig-schedule); }
+.ci--webhook  { --sig: var(--sig-webhook); }
+.ci--chat     { --sig: var(--sig-chat); }
+
+/* — сама карточка кейса — */
+.case {
+  position: relative;
+  margin-top: clamp(2rem, 5vw, 3rem);
+  padding: clamp(1.4rem, 3.5vw, 2.1rem);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+/* декор: тонкая полоса сигнального цвета и «миллиметровка» в углу */
+.case::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--sig), color-mix(in srgb, var(--sig) 12%, transparent));
+}
+.case::after {
+  content: "";
+  position: absolute; top: 3px; right: 0;
+  width: 190px; height: 190px;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 19px 19px;
+  -webkit-mask-image: radial-gradient(120px 120px at 100% 0, #000, transparent 75%);
+          mask-image: radial-gradient(120px 120px at 100% 0, #000, transparent 75%);
+}
+.case > * { position: relative; }
+
+.case--manual   { --sig: var(--sig-manual); }
+.case--schedule { --sig: var(--sig-schedule); }
+.case--webhook  { --sig: var(--sig-webhook); }
+.case--chat     { --sig: var(--sig-chat); }
+
+/* номер кейса — крупной «призрачной» цифрой в углу, поверх миллиметровки */
+.case__head { padding-right: clamp(3.4rem, 11vw, 6rem); }
+.case__no {
+  position: absolute;
+  top: clamp(0.5rem, 2vw, 0.9rem);
+  right: clamp(0.9rem, 3vw, 1.6rem);
+  font-family: var(--display);
+  font-size: clamp(2.2rem, 6vw, 3.6rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: color-mix(in srgb, var(--sig) 38%, transparent);
+  pointer-events: none;
+}
+.case__kicker {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--display);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--sig);
+  margin: 0 0 0.4rem;
+}
+.case__kicker::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--sig); flex: none;
+}
+.case__title {
+  font-size: clamp(1.15rem, 2.6vw, 1.45rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.case__lede { color: var(--ink-soft); margin: 0.9rem 0 0; max-width: 68ch; font-size: 0.98rem; }
+
+.case__body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: clamp(1.25rem, 3vw, 2rem);
+  margin-top: 1.6rem;
+  align-items: start;
+}
+@media (max-width: 880px) { .case__body { grid-template-columns: 1fr; } }
+
+.pane-label {
+  font-family: var(--display);
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin: 0 0 0.7rem;
+}
+
+/* — поток: триггер → брокер → воркер → результат — */
+.flow { list-style: none; margin: 0; padding: 0; }
+.flow__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 0.7rem;
+  padding-bottom: 1.05rem;
+}
+.flow__step:last-child { padding-bottom: 0; }
+.flow__step::before {                       /* соединительная линия */
+  content: "";
+  position: absolute;
+  left: 12px; top: 26px; bottom: -2px;
+  width: 1px;
+  background: repeating-linear-gradient(var(--line-firm) 0 4px, transparent 4px 8px);
+}
+.flow__step:last-child::before { display: none; }
+.flow__dot {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line-firm);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+}
+.flow__step--sig .flow__dot { border-color: var(--sig); color: var(--sig); }
+.flow__dot svg { width: 13px; height: 13px; }
+.flow__t { font-size: 0.92rem; font-weight: 550; line-height: 1.35; margin: 0.15rem 0 0.2rem; }
+.flow__d {
+  font-family: var(--display);
+  font-size: 0.74rem;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.flow__d b { color: var(--ink-soft); font-weight: 500; }
+
+/* появление по мере прокрутки */
+.reveal .flow__step,
+.reveal .mock { opacity: 0; transform: translateY(10px); }
+.reveal.is-in .flow__step,
+.reveal.is-in .mock {
+  opacity: 1; transform: none;
+  transition: opacity 0.5s cubic-bezier(.2,.7,.3,1), transform 0.5s cubic-bezier(.2,.7,.3,1);
+}
+.reveal.is-in .flow__step:nth-child(2) { transition-delay: 0.08s; }
+.reveal.is-in .flow__step:nth-child(3) { transition-delay: 0.16s; }
+.reveal.is-in .flow__step:nth-child(4) { transition-delay: 0.24s; }
+.reveal.is-in .flow__step:nth-child(5) { transition-delay: 0.32s; }
+.reveal.is-in .mock { transition-delay: 0.2s; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal .flow__step, .reveal .mock { opacity: 1 !important; transform: none !important; }
+}
+
+/* — рецепт: из чего собран кейс — */
+.recipe {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  margin-top: 1.5rem;
+  padding-top: 1.1rem;
+  border-top: 1px dashed var(--line-firm);
+  align-items: center;
+}
+.recipe__l {
+  font-family: var(--display);
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--muted);
+  margin-right: 0.2rem;
+}
+.chip {
+  font-family: var(--display);
+  font-size: 0.71rem;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid var(--line-firm);
+  border-radius: 2px;
+  color: var(--ink-soft);
+  background: var(--ground);
+  white-space: nowrap;
+}
+.chip b { color: var(--muted); font-weight: 400; }
+.chip--sig { border-color: color-mix(in srgb, var(--sig) 55%, var(--line-firm)); color: var(--sig); }
+
+/* ── макеты результата ─────────────────────────────────────────────────── */
+.mock {
+  border: 1px solid var(--shot-frame);
+  border-radius: 5px;
+  background: var(--ground);
+  overflow: hidden;
+}
+.mock + .mock, .mock + .code, .code + .mock { margin-top: 0.8rem; }
+.mock__bar {
+  display: flex; align-items: center; gap: 0.45rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--band);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: 0.68rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.mock__dots { display: flex; gap: 4px; flex: none; }
+.mock__dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-firm); display: block; }
+.mock__url {
+  flex: 1;
+  padding: 0.12rem 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mock__body { padding: 0.85rem 0.95rem; background: var(--surface); }
+.mock__cap {
+  font-family: var(--display);
+  font-size: 0.68rem;
+  color: var(--muted);
+  padding: 0.45rem 0.7rem;
+  border-top: 1px solid var(--line);
+  background: var(--band);
+}
+
+/* аватар/автор строки в макетах */
+.m-row { display: flex; gap: 0.6rem; align-items: flex-start; }
+.m-row + .m-row { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--line); }
+.m-ava {
+  width: 26px; height: 26px; border-radius: 4px;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--sig) 16%, transparent);
+  color: var(--sig);
+  flex: none;
+}
+.m-ava svg { width: 14px; height: 14px; }
+.m-who { font-family: var(--display); font-size: 0.72rem; color: var(--muted); margin: 0 0 0.25rem; }
+.m-who b { color: var(--ink); font-weight: 600; }
+.m-txt { font-size: 0.85rem; color: var(--ink-soft); margin: 0; line-height: 1.55; }
+.m-txt + .m-txt { margin-top: 0.4rem; }
+.m-txt code { background: var(--band); padding: 0.05em 0.3em; border-radius: 2px; }
+
+/* бейджи важности */
+.sev {
+  font-family: var(--display);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.sev--hi  { color: #d14343; }
+.sev--mid { color: var(--sig-schedule); }
+.sev--ok  { color: var(--sig-chat); }
+.sev--info{ color: var(--muted); }
+@media (prefers-color-scheme: dark) { .sev--hi { color: #f87171; } }
+:root[data-theme="dark"] .sev--hi { color: #f87171; }
+
+.m-find { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.84rem; color: var(--ink-soft); }
+.m-find + .m-find { margin-top: 0.5rem; }
+.m-find code { font-size: 0.78rem; color: var(--muted); }
+
+/* — телеграм-макет — */
+.tg { padding: 0.85rem; background: var(--band); }
+.tg__msg {
+  max-width: 88%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  position: relative;
+}
+.tg__msg + .tg__msg { margin-top: 0.5rem; }
+.tg__msg--out {
+  margin-left: auto;
+  background: color-mix(in srgb, var(--sig-chat) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--sig-chat) 35%, var(--line));
+}
+.tg__time { font-family: var(--display); font-size: 0.63rem; color: var(--muted); display: block; margin-top: 0.3rem; }
+.tg__file {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: 0.45rem; padding: 0.4rem 0.5rem;
+  background: var(--ground); border: 1px solid var(--line); border-radius: 4px;
+  font-family: var(--display); font-size: 0.71rem; color: var(--ink-soft);
+}
+.tg__file svg { width: 14px; height: 14px; color: var(--muted); flex: none; }
+.tg__typing { font-family: var(--display); font-size: 0.68rem; color: var(--muted); padding: 0.35rem 0.2rem 0; }
+
+/* телефон */
+.phone {
+  max-width: 300px; margin-inline: auto;
+  border: 8px solid var(--line-firm);
+  border-radius: 26px;
+  overflow: hidden;
+  background: var(--band);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+}
+.phone__bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.45rem 0.8rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--display); font-size: 0.66rem; color: var(--muted);
+}
+.phone__bar b { color: var(--ink); font-weight: 600; font-size: 0.72rem; }
+
+/* — терминал — */
+.term {
+  background: #0e1013;
+  color: #cfd4dc;
+  font-family: var(--display);
+  font-size: 0.75rem;
+  line-height: 1.65;
+  padding: 0.85rem 0.95rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+.term .g { color: #6ee7b7; }
+.term .r { color: #fca5a5; }
+.term .y { color: #fcd34d; font-weight: 400; }
+.term .d { color: #6b7280; }
+
+/* — «скриншот» страницы, нарисованный css: декорация для playwright-кейса — */
+.wire { padding: 0.7rem; background: var(--surface); }
+.wire__row { display: flex; gap: 0.5rem; }
+.wire__row + .wire__row { margin-top: 0.5rem; }
+.wire b, .wire i {
+  display: block; border-radius: 2px;
+  background: linear-gradient(90deg, var(--band), color-mix(in srgb, var(--line) 60%, var(--band)));
+}
+.wire b { height: 10px; }
+.wire i { height: 44px; flex: 1; }
+.wire .hi { background: linear-gradient(120deg, color-mix(in srgb, var(--sig) 26%, var(--band)), var(--band)); }
+.wire__price {
+  font-family: var(--display); font-size: 0.72rem; color: var(--ink);
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 0.35rem 0.1rem 0;
+}
+.wire__price s { color: var(--muted); }
+.wire__price em { font-style: normal; color: var(--sig); font-weight: 600; }
+.wire__shot {
+  position: absolute; right: 10px; top: 46px;
+  font-family: var(--display); font-size: 0.6rem; letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sig);
+  border: 1px solid var(--sig); border-radius: 2px;
+  padding: 0.05rem 0.3rem;
+  background: var(--surface);
+}
+.wire-wrap { position: relative; }
+
+/* — issues / чек-лист — */
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows li {
+  display: flex; gap: 0.6rem; align-items: center;
+  padding: 0.5rem 0;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+.rows li + li { border-top: 1px solid var(--line); }
+.rows svg { width: 14px; height: 14px; flex: none; color: var(--sig-chat); }
+.rows .tag {
+  margin-left: auto;
+  font-family: var(--display); font-size: 0.66rem;
+  color: var(--muted);
+  border: 1px solid var(--line-firm); border-radius: 2px;
+  padding: 0.05rem 0.35rem;
+  white-space: nowrap;
+}
+
+/* — мини-график для кейса с отчётом — */
+.bars { display: flex; align-items: flex-end; gap: 7px; height: 84px; padding: 0.3rem 0 0; }
+.bars i {
+  flex: 1; display: block;
+  background: color-mix(in srgb, var(--sig) 30%, var(--band));
+  border-top: 2px solid var(--sig);
+  border-radius: 1px 1px 0 0;
+  animation: grow 0.6s cubic-bezier(.2,.7,.3,1) backwards;
+  transform-origin: bottom;
+}
+.bars i:nth-child(n) { animation-delay: calc(var(--i, 0) * 60ms); }
+@keyframes grow { from { transform: scaleY(0.05); opacity: 0.3; } to { transform: none; opacity: 1; } }
+.bars-x {
+  display: flex; gap: 7px;
+  font-family: var(--display); font-size: 0.62rem; color: var(--muted);
+  margin-top: 0.35rem;
+}
+.bars-x span { flex: 1; text-align: center; }
+
+/* — строка «эффекта» под кейсом — */
+.gain {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.35rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--line);
+}
+.gain div { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+.gain b {
+  display: block;
+  font-family: var(--display);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sig);
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+}
+
+/* — финальная плашка «соберите свой кейс» — */
+.cta {
+  margin-top: clamp(2.5rem, 6vw, 3.5rem);
+  padding: clamp(1.5rem, 4vw, 2.25rem);
+  border: 1px solid var(--line-firm);
+  border-radius: 5px;
+  background:
+    radial-gradient(140% 120% at 0% 0%, color-mix(in srgb, var(--sig-manual) 9%, transparent), transparent 60%),
+    var(--surface);
+  text-align: center;
+}
+.cta h3 { font-size: clamp(1.1rem, 2.6vw, 1.4rem); font-weight: 600; letter-spacing: -0.02em; }
+.cta p { color: var(--ink-soft); max-width: 60ch; margin: 0.6rem auto 1.3rem; }
+
 /* ── comparison table ───────────────────────────────────────────────────── */
 .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
 table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 0.87rem; }
@@ -457,6 +921,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; justify-cont
     <div class="hero__actions">
       <a class="btn btn--primary" href="https://github.com/katskov-dev/vibeprod" data-i18n="btn.github">Get it on GitHub</a>
       <a class="btn" href="#quickstart" data-i18n="btn.quickstart">Quick start</a>
+      <a class="btn" href="#usecases" data-i18n="btn.cases">Use cases</a>
       <a class="btn" href="#comparison" data-i18n="btn.compare">How it compares</a>
     </div>
 
@@ -688,6 +1153,681 @@ X-Vibeprod-Signature: <span class="p">sha256=…</span>
       The operator's MCP endpoint is not in the catalog and cannot be attached to other agents:
       its URL and bearer secret are injected only into operator sessions.
     </p>
+  </div>
+</section>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="s" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></g>
+    <symbol id="i-cursor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 8-6.2 1.6L10 19z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.2 2"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M20 12c0 1.7-3.6 3-8 3s-8-1.3-8-3"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6"/><path d="M18 11.2v.8a4 4 0 0 1-4 4H8.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9.2 16.5H2.8z"/><path d="M12 9.5v4.2"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6.5L9.2 17.3 4 12.1"/></symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3.2l1.8-3h6l1.8 3H20v11H4z"/><circle cx="12" cy="13.5" r="3.4"/></symbol>
+    <symbol id="i-term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7.5 9.5l3 2.7-3 2.7"/><path d="M13 15h4"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4.5V8"/><circle cx="12" cy="3.5" r="1.2"/><path d="M9 13.5h.01M15 13.5h.01"/><path d="M9.5 17h5"/></symbol>
+    <symbol id="i-issue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8.3 12.2l2.6 2.6 4.8-5.6"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8.5L12 3.5 3 8.5v7L12 20.5l9-5z"/><path d="M3 8.5l9 5 9-5"/><path d="M12 13.5v7"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 20v-6M12.5 20V9M17 20v-9.5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v6c0 4.6-3.1 8-7.5 9.5C7.6 20 4.5 16.6 4.5 12V6z"/><path d="M9.2 12.2l1.9 1.9 3.8-4.2"/></symbol>
+  </defs>
+</svg>
+
+<section class="band" id="usecases">
+  <div class="wrap">
+    <p class="eyebrow" data-i18n="eyebrow.cases">Use cases</p>
+    <h2 class="section-title" data-i18n="cases.title">Seven things people actually leave running</h2>
+    <p class="lede cases-intro" data-i18n="cases.lede">
+      A control plane is only worth the disk it takes if something useful runs on it.
+      Each case below is one trigger, one agent and one place the answer lands — with the
+      exact wiring underneath, so you can rebuild it in an afternoon. The coloured dot is
+      the trigger: <b style="color:var(--sig-manual)">manual</b>,
+      <b style="color:var(--sig-schedule)">schedule</b>,
+      <b style="color:var(--sig-webhook)">webhook</b>,
+      <b style="color:var(--sig-chat)">chat</b>.
+    </p>
+
+    <nav class="case-index" aria-label="Use cases">
+      <a class="ci ci--webhook" href="#case-review">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-branch"/></svg><span class="ci__no">01</span></span>
+        <span class="ci__t" data-i18n="ci1.t">Pull-request review</span>
+        <span class="ci__s" data-i18n="ci1.s">webhook from CI → review in the PR</span>
+      </a>
+      <a class="ci ci--webhook" href="#case-oncall">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-alert"/></svg><span class="ci__no">02</span></span>
+        <span class="ci__t" data-i18n="ci2.t">On-call triage</span>
+        <span class="ci__s" data-i18n="ci2.s">alert → diagnosis → issue → Telegram</span>
+      </a>
+      <a class="ci ci--schedule" href="#case-digest">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-cam"/></svg><span class="ci__no">03</span></span>
+        <span class="ci__t" data-i18n="ci3.t">Morning web digest</span>
+        <span class="ci__s" data-i18n="ci3.s">cron → real browser → screenshots</span>
+      </a>
+      <a class="ci ci--schedule" href="#case-nightly">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-term"/></svg><span class="ci__no">04</span></span>
+        <span class="ci__t" data-i18n="ci4.t">Nightly repo upkeep</span>
+        <span class="ci__s" data-i18n="ci4.s">cron → tests, deps, TODOs → issues</span>
+      </a>
+      <a class="ci ci--schedule" href="#case-report">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-chart"/></svg><span class="ci__no">05</span></span>
+        <span class="ci__t" data-i18n="ci5.t">Monday numbers</span>
+        <span class="ci__s" data-i18n="ci5.s">SQL → CSV in the project → chat</span>
+      </a>
+      <a class="ci ci--chat" href="#case-pocket">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-send"/></svg><span class="ci__no">06</span></span>
+        <span class="ci__t" data-i18n="ci6.t">The console in your pocket</span>
+        <span class="ci__s" data-i18n="ci6.s">Telegram → same sessions as the web UI</span>
+      </a>
+      <a class="ci ci--manual" href="#case-operator">
+        <span class="ci__top"><svg class="ci__ico"><use href="#i-bot"/></svg><span class="ci__no">07</span></span>
+        <span class="ci__t" data-i18n="ci7.t">Describe it, get it</span>
+        <span class="ci__s" data-i18n="ci7.s">the operator agent builds cases 01–06</span>
+      </a>
+    </nav>
+
+    <!-- ── 01 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--webhook reveal" id="case-review">
+      <div class="case__head">
+        <span class="case__no">01</span>
+        <div>
+          <p class="case__kicker" data-i18n="c1.kicker">Webhook from CI</p>
+          <h3 class="case__title" data-i18n="c1.title">Every pull request is reviewed before a human opens it</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c1.lede">
+        A GitHub Action posts the PR number to a webhook URL. The reviewer agent checks out the
+        branch inside its own container, reads the diff through the GitHub MCP server, runs the
+        test suite, and writes the review back to the PR. With <code>?wait=180</code> the CI job
+        blocks until the review is ready and prints it in its own log — no polling, no second job.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.flow">How one run goes</p>
+          <ol class="flow">
+            <li class="flow__step flow__step--sig">
+              <span class="flow__dot"><svg><use href="#i-bolt"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c1.s1">CI fires the webhook</p>
+                <p class="flow__d">POST /api/webhooks/<b>pr-review</b>/run?wait=180<br>X-Webhook-Secret: ••••<br>{"prompt": "Review PR #482"}</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-cpu"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c1.s2">The broker starts a session</p>
+                <p class="flow__d" data-i18n="c1.s2d">tagged <b>webhook</b> · own container · own port · own token</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-branch"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c1.s3">The agent does the work</p>
+                <p class="flow__d" data-i18n="c1.s3d"><b>code-reviewer</b> · mcp: github, files · reads the diff, greps the repo, runs <b>pytest -q</b></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-check"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c1.s4">The answer goes back two ways</p>
+                <p class="flow__d" data-i18n="c1.s4d">a comment on the PR, and <b>session.completed</b> to your outgoing webhook — signed with HMAC-SHA256, retried on failure</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.lands">What lands in the pull request</p>
+          <div class="mock">
+            <div class="mock__bar"><span class="mock__dots"><i></i><i></i><i></i></span><span class="mock__url">pull/482 — feat: batch upload</span></div>
+            <div class="mock__body">
+              <div class="m-row">
+                <span class="m-ava"><svg><use href="#i-bot"/></svg></span>
+                <div style="min-width:0">
+                  <p class="m-who"><b>code-reviewer</b> · via vibeprod · 41s</p>
+                  <p class="m-txt" data-i18n="c1.rev0">Ran the suite on the branch: <code>128 passed, 1 failed</code>. Three things worth a look.</p>
+                  <div style="margin-top:0.7rem">
+                    <p class="m-find"><span class="sev sev--hi" data-i18n="sev.block">blocker</span><span data-i18n="c1.rev1"><code>upload.py:88</code> — the S3 client is created per file; 400 files means 400 TLS handshakes.</span></p>
+                    <p class="m-find"><span class="sev sev--mid" data-i18n="sev.watch">watch</span><span data-i18n="c1.rev2"><code>test_batch.py</code> — the failing case is the empty-manifest path, not flakiness. Reproduced twice.</span></p>
+                    <p class="m-find"><span class="sev sev--info" data-i18n="sev.nit">nit</span><span data-i18n="c1.rev3">The retry loop swallows <code>KeyboardInterrupt</code> along with everything else.</span></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="mock__cap" data-i18n="c1.cap">Illustration — the review text is whatever your prompt asks for</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="gain">
+        <div><b data-i18n="gain.before">Before</b><span data-i18n="c1.before">The diff waits for whoever has time, and the tests run somewhere you have to go and look at.</span></div>
+        <div><b data-i18n="gain.after">After</b><span data-i18n="c1.after">The first pass is done by the time the notification arrives, on your hardware, on your key.</span></div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">webhook <b>pr-review</b></span>
+        <span class="chip">agent <b>code-reviewer</b></span>
+        <span class="chip">mcp <b>github</b></span>
+        <span class="chip">out-webhook <b>session.completed</b></span>
+      </div>
+    </article>
+
+    <!-- ── 02 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--webhook reveal" id="case-oncall">
+      <div class="case__head">
+        <span class="case__no">02</span>
+        <div>
+          <p class="case__kicker" data-i18n="c2.kicker">Webhook from your alerting</p>
+          <h3 class="case__title" data-i18n="c2.title">The 3 a.m. page arrives already triaged</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c2.lede">
+        Alertmanager, Sentry or an uptime checker posts the firing alert to a webhook. The triage
+        agent pulls the recent logs, greps the repository for the failing symbol, lines it up
+        against the last deploys, then does two things a dashboard never does: it files an issue
+        in the tracker with <code>issue_create</code>, and it sends you the short version with
+        <code>telegram_send</code>. You wake up to a hypothesis, not a graph.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.flow">How one run goes</p>
+          <ol class="flow">
+            <li class="flow__step flow__step--sig">
+              <span class="flow__dot"><svg><use href="#i-alert"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c2.s1">The alert fires</p>
+                <p class="flow__d">POST /api/webhooks/<b>oncall</b>/run<br>{"title": "5xx rate 4.1%", "prompt": "…"}</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-term"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c2.s2">The agent gathers context</p>
+                <p class="flow__d" data-i18n="c2.s2d">logs, <b>git log --since</b>, the failing handler, the last three deploys</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-issue"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c2.s3">It files what it found</p>
+                <p class="flow__d"><b>issue_create</b> — <span data-i18n="c2.s3d">title, findings, tags; visible in the Issues page a second later</span></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-send"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c2.s4">And wakes you properly</p>
+                <p class="flow__d"><b>telegram_send</b> — <span data-i18n="c2.s4d">or the notification chat, set to fire only on failures</span></p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.arrives">What arrives on your phone</p>
+          <div class="mock">
+            <div class="mock__bar"><svg style="width:13px;height:13px" aria-hidden="true"><use href="#i-alert"/></svg><span data-i18n="c2.alert">alert · api-gateway · firing 00:41</span></div>
+            <div class="tg">
+              <div class="tg__msg">
+                <p class="m-txt"><b data-i18n="c2.m1h">HTTP 5xx 4.1% on api-gateway</b></p>
+                <p class="m-txt" data-i18n="c2.m1">Started 00:38, right after <code>a91f2c</code> went out. All failures are on <code>POST /v1/batch</code>; everything else is flat.</p>
+                <p class="m-txt" data-i18n="c2.m2">The new code calls <code>manifest["items"]</code> without a default — the empty manifest from the mobile client raises <code>KeyError</code> and the handler turns it into a 500.</p>
+                <p class="m-txt" data-i18n="c2.m3">Filed as <code>#137</code>. Rolling back <code>a91f2c</code> should stop it; the fix is two lines.</p>
+                <span class="tg__time">00:41</span>
+              </div>
+              <div class="tg__msg tg__msg--out"><p class="m-txt" data-i18n="c2.m4">roll it back and open a PR with the fix</p><span class="tg__time">00:42</span></div>
+              <p class="tg__typing" data-i18n="c2.typing">code-reviewer is working…</p>
+            </div>
+            <p class="mock__cap" data-i18n="c2.cap">Illustration — the reply continues the same session, so context is kept</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="gain">
+        <div><b data-i18n="gain.before">Before</b><span data-i18n="c2.before">A pager with a metric on it, and fifteen minutes of climbing into context before you can think.</span></div>
+        <div><b data-i18n="gain.after">After</b><span data-i18n="c2.after">A named suspect commit, a filed issue, and a chat you can answer from bed.</span></div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">webhook <b>oncall</b></span>
+        <span class="chip">agent <b>oncall-triage</b></span>
+        <span class="chip">tool <b>issue_create</b></span>
+        <span class="chip">tool <b>telegram_send</b></span>
+      </div>
+    </article>
+
+    <!-- ── 03 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--schedule reveal" id="case-digest">
+      <div class="case__head">
+        <span class="case__no">03</span>
+        <div>
+          <p class="case__kicker" data-i18n="c3.kicker">Cron schedule · 09:00 on weekdays</p>
+          <h3 class="case__title" data-i18n="c3.title">A morning briefing the agent actually looked at</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c3.lede">
+        Not a scraper guessing at markup: the bundled Playwright service gives the agent a real
+        browser in its own container. It opens the pages you care about — competitors' pricing, a
+        status board, your own checkout — takes screenshots, pushes them into the project's file
+        storage with <code>upload_file</code>, and delivers the digest with the images attached.
+        The <code>screenshot-to-files</code> skill ships with the box and wires those two together.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.flow">How one run goes</p>
+          <ol class="flow">
+            <li class="flow__step flow__step--sig">
+              <span class="flow__dot"><svg><use href="#i-clock"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c3.s1">The schedule fires</p>
+                <p class="flow__d">cron <b>0 9 * * 1-5</b> · Europe/Moscow<br><span data-i18n="c3.s1d">every run recorded, with its result</span></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-globe"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c3.s2">A real browser opens the pages</p>
+                <p class="flow__d" data-i18n="c3.s2d">playwright service · own container on the <b>vibeprod-mcp</b> network · started on demand</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-cam"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c3.s3">Screenshots become project files</p>
+                <p class="flow__d"><b>browser_take_screenshot</b> → <b>upload_file</b> → <span data-i18n="c3.s3d">a link that outlives the container</span></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-send"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c3.s4">The digest arrives with pictures</p>
+                <p class="flow__d"><b>telegram_send_file</b> — <span data-i18n="c3.s4d">text and images, straight into the chat</span></p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.sees">What the agent sees, and what you get</p>
+          <div class="mock wire-wrap">
+            <div class="mock__bar"><span class="mock__dots"><i></i><i></i><i></i></span><span class="mock__url">competitor.example/pricing</span></div>
+            <span class="wire__shot">screenshot</span>
+            <div class="wire">
+              <div class="wire__row"><b style="width:38%"></b></div>
+              <div class="wire__row"><i></i><i class="hi"></i><i></i></div>
+              <div class="wire__price"><span data-i18n="c3.plan">Team plan</span> <span><s>$29</s> <em>$24 / mo</em></span></div>
+              <div class="wire__row" style="margin-top:0.55rem"><b style="width:70%"></b></div>
+              <div class="wire__row"><b style="width:52%"></b></div>
+            </div>
+          </div>
+          <div class="mock">
+            <div class="tg">
+              <div class="tg__msg">
+                <p class="m-txt"><b data-i18n="c3.dh">Morning digest · Fri</b></p>
+                <p class="m-txt" data-i18n="c3.d1">Competitor dropped the Team plan from $29 to $24 and moved SSO out of Enterprise. Screenshot attached.</p>
+                <p class="m-txt" data-i18n="c3.d2">Your status page is green; the checkout flow completed in 3 of 3 attempts.</p>
+                <span class="tg__file"><svg><use href="#i-file"/></svg>pricing-2026-08-16.png · 214 KB</span>
+                <span class="tg__time">09:00</span>
+              </div>
+            </div>
+            <p class="mock__cap" data-i18n="c3.cap">Illustration — the same files stay browsable on the Files page</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">schedule <b>0 9 * * 1-5</b></span>
+        <span class="chip">mcp <b>playwright</b></span>
+        <span class="chip">mcp <b>files</b></span>
+        <span class="chip">skill <b>screenshot-to-files</b></span>
+        <span class="chip">tool <b>telegram_send_file</b></span>
+      </div>
+    </article>
+
+    <!-- ── 04 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--schedule reveal" id="case-nightly">
+      <div class="case__head">
+        <span class="case__no">04</span>
+        <div>
+          <p class="case__kicker" data-i18n="c4.kicker">Cron schedule · nightly</p>
+          <h3 class="case__title" data-i18n="c4.title">The boring repository work, done while you sleep</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c4.lede">
+        One session per repository, each in its own container: bump the dependencies, run the
+        suite against the bumped tree, sweep the TODOs, look for the dead module nobody has
+        imported since March. Nothing is pushed without your say-so — the output is a set of
+        issues in the tracker, written by the agent through <code>issue_create</code>, waiting
+        for you in the morning. A build that goes badly wrong takes its container with it.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.flow">How one run goes</p>
+          <ol class="flow">
+            <li class="flow__step flow__step--sig">
+              <span class="flow__dot"><svg><use href="#i-clock"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c4.s1">03:00, one session per repository</p>
+                <p class="flow__d">cron <b>0 3 * * *</b> · <span data-i18n="c4.s1d">idle containers are reaped afterwards</span></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-box"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c4.s2">Work happens inside the container</p>
+                <p class="flow__d" data-i18n="c4.s2d">git, ripgrep, python and openssh are in the worker image; the host is untouched</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-issue"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c4.s3">Findings become issues, not a wall of text</p>
+                <p class="flow__d"><b>issue_create</b> · <b>issue_list</b> — <span data-i18n="c4.s3d">tagged, searchable, closable</span></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-check"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c4.s4">The summary follows you</p>
+                <p class="flow__d" data-i18n="c4.s4d">notification chat: every run, or only the ones that fail</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.night">Inside the container, 03:04</p>
+          <div class="mock">
+            <div class="mock__bar"><svg style="width:13px;height:13px" aria-hidden="true"><use href="#i-term"/></svg><span>vibeprod-oc-4f21 · nightly-upkeep</span></div>
+            <pre class="term"><span class="d">$</span> pip install -U -r requirements.txt
+<span class="d">  httpx 0.27.2 → 0.28.1 · pydantic 2.8.2 → 2.11.0</span>
+<span class="d">$</span> pytest -q
+<span class="g">......................................</span><span class="r">F</span><span class="g">.....</span>
+<span class="r">FAILED</span> tests/test_client.py::test_timeout_default
+<span class="y">  httpx 0.28 changed the default timeout to None</span>
+<span class="d">$</span> rg -n "TODO|FIXME" --stats
+<span class="d">  14 matches · 3 older than 180 days</span></pre>
+            <div class="mock__body">
+              <ul class="rows">
+                <li><svg><use href="#i-issue"/></svg><span data-i18n="c4.i1">Pin httpx&lt;0.28 or set an explicit timeout</span><span class="tag" data-i18n="tag.deps">deps</span></li>
+                <li><svg><use href="#i-issue"/></svg><span data-i18n="c4.i2">3 TODOs older than six months in billing/</span><span class="tag" data-i18n="tag.debt">tech-debt</span></li>
+                <li><svg><use href="#i-issue"/></svg><span data-i18n="c4.i3">export/legacy.py has no importers left</span><span class="tag" data-i18n="tag.dead">dead-code</span></li>
+              </ul>
+            </div>
+            <p class="mock__cap" data-i18n="c4.cap">Illustration — three issues created by the agent, open in the tracker</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="gain">
+        <div><b data-i18n="gain.before">Before</b><span data-i18n="c4.before">Upkeep gets postponed until a dependency breaks something during a release.</span></div>
+        <div><b data-i18n="gain.after">After</b><span data-i18n="c4.after">A short, tagged list every morning — and the build that broke did so in a container at 3 a.m.</span></div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">schedule <b>0 3 * * *</b></span>
+        <span class="chip">agent <b>nightly-upkeep</b></span>
+        <span class="chip">tool <b>issue_create</b></span>
+        <span class="chip">channel <b>notify on failure</b></span>
+      </div>
+    </article>
+
+    <!-- ── 05 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--schedule reveal" id="case-report">
+      <div class="case__head">
+        <span class="case__no">05</span>
+        <div>
+          <p class="case__kicker" data-i18n="c5.kicker">Cron schedule · Monday 08:30</p>
+          <h3 class="case__title" data-i18n="c5.title">Monday's numbers, in the chat, without a BI seat</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c5.lede">
+        Add a Postgres MCP server to the catalog once, attach it to an agent with one click, and
+        the weekly report writes itself: query, compare with last week, put the CSV in the
+        project's storage, send the short version to the chat. The database credentials sit in
+        your own catalog entry and the rows never leave the machine — the model sees only what
+        the agent puts in its answer.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.flow">How one run goes</p>
+          <ol class="flow">
+            <li class="flow__step flow__step--sig">
+              <span class="flow__dot"><svg><use href="#i-clock"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c5.s1">Monday morning, before the standup</p>
+                <p class="flow__d">cron <b>30 8 * * 1</b> · Europe/Moscow</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-db"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c5.s2">The agent queries directly</p>
+                <p class="flow__d" data-i18n="c5.s2d">mcp <b>postgres</b> from the catalog · read-only role, your credentials</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-file"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c5.s3">The raw table is kept</p>
+                <p class="flow__d"><b>upload_file</b> — <span data-i18n="c5.s3d">weekly CSVs pile up in the project, one link each</span></p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-chart"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c5.s4">You get the sentence, not the spreadsheet</p>
+                <p class="flow__d" data-i18n="c5.s4d">what moved, by how much, and what looks wrong</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.report">The run, and its output</p>
+          <pre class="code" data-i18n="c5.sql"><span class="c">-- what the agent ran</span>
+SELECT date_trunc(<span class="p">'day'</span>, created_at) d,
+       count(*) signups
+  FROM users
+ WHERE created_at &gt; now() - <span class="p">'7 days'</span>::interval
+ GROUP BY <span class="p">1</span> ORDER BY <span class="p">1</span>;</pre>
+          <div class="mock">
+            <div class="mock__body">
+              <p class="m-who"><b data-i18n="c5.title2">Signups, last 7 days</b> · +18% <span data-i18n="c5.wow">week over week</span></p>
+              <div class="bars">
+                <i style="--i:0;height:44%"></i><i style="--i:1;height:52%"></i><i style="--i:2;height:39%"></i>
+                <i style="--i:3;height:61%"></i><i style="--i:4;height:74%"></i><i style="--i:5;height:88%"></i>
+                <i style="--i:6;height:96%"></i>
+              </div>
+              <div class="bars-x"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+              <p class="m-txt" style="margin-top:0.7rem" data-i18n="c5.note">Weekend spike is one referral source, not organic — worth checking before anyone celebrates.</p>
+              <span class="tg__file"><svg><use href="#i-file"/></svg>signups-w33.csv · 12 KB</span>
+            </div>
+            <p class="mock__cap" data-i18n="c5.cap">Illustration — the chart stands in for whatever your prompt asks the agent to say</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">schedule <b>30 8 * * 1</b></span>
+        <span class="chip">mcp <b>postgres</b></span>
+        <span class="chip">mcp <b>files</b></span>
+        <span class="chip">tool <b>telegram_send_file</b></span>
+      </div>
+    </article>
+
+    <!-- ── 06 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--chat reveal" id="case-pocket">
+      <div class="case__head">
+        <span class="case__no">06</span>
+        <div>
+          <p class="case__kicker" data-i18n="c6.kicker">A message to your bot</p>
+          <h3 class="case__title" data-i18n="c6.title">The console in your pocket</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c6.lede">
+        Telegram runs inside the broker on long polling — no public URL, no tunnel, no extra
+        dependency. The first message opens a session, the next ones continue it, and the answer
+        streams by editing the bot's message. <code>/agents</code> lists what you have,
+        <code>/agent 3</code> switches, <code>/new</code> starts fresh, <code>/abort</code> stops
+        a run. Open the web UI afterwards and it is the same session, with the full transcript.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.behave">How it behaves</p>
+          <ol class="flow">
+            <li class="flow__step flow__step--sig">
+              <span class="flow__dot"><svg><use href="#i-send"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c6.s1">Long polling, not a webhook</p>
+                <p class="flow__d" data-i18n="c6.s1d">the bot token and the allowed user ids live in the UI; the box stays closed to the internet</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-cpu"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c6.s2">One thread, one session</p>
+                <p class="flow__d" data-i18n="c6.s2d">history lives on a docker volume, so the worker can restart under you</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-bot"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c6.s3">Commands where you'd expect them</p>
+                <p class="flow__d">/agents · /agent N · /new · /abort · /status · /link · /chatid</p>
+              </div>
+            </li>
+            <li class="flow__step">
+              <span class="flow__dot"><svg><use href="#i-cursor"/></svg></span>
+              <div>
+                <p class="flow__t" data-i18n="c6.s4">Continue at the desk</p>
+                <p class="flow__d" data-i18n="c6.s4d"><b>/link</b> opens the same session in the web UI — same transcript, same container</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.pocket">Saturday, away from the laptop</p>
+          <div class="phone">
+            <div class="phone__bar"><b>vibeprod bot</b><span>12:04</span></div>
+            <div class="tg">
+              <div class="tg__msg tg__msg--out"><p class="m-txt" data-i18n="c6.m1">why is staging returning 502 since the deploy?</p><span class="tg__time">12:04</span></div>
+              <div class="tg__msg">
+                <p class="m-txt" data-i18n="c6.m2">The gateway can't reach <code>orders</code>: the new compose file renamed the service to <code>orders-api</code>, but the nginx upstream still points at <code>orders</code>.</p>
+                <p class="m-txt" data-i18n="c6.m3">One line in <code>nginx.conf</code>. Want the patch?</p>
+                <span class="tg__time">12:05</span>
+              </div>
+              <div class="tg__msg tg__msg--out"><p class="m-txt">/link</p><span class="tg__time">12:05</span></div>
+              <div class="tg__msg"><p class="m-txt" data-i18n="c6.m4">Open this session in the browser: <code>localhost:8000/#s/9c2a…</code></p><span class="tg__time">12:05</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">channel <b>telegram</b></span>
+        <span class="chip">agent <b>general</b></span>
+        <span class="chip">tool <b>telegram_info</b></span>
+      </div>
+    </article>
+
+    <!-- ── 07 ─────────────────────────────────────────────────────────── -->
+    <article class="case case--manual reveal" id="case-operator">
+      <div class="case__head">
+        <span class="case__no">07</span>
+        <div>
+          <p class="case__kicker" data-i18n="c7.kicker">You, on the home screen</p>
+          <h3 class="case__title" data-i18n="c7.title">Describe the automation, get the automation</h3>
+        </div>
+      </div>
+      <p class="case__lede" data-i18n="c7.lede">
+        The six cases above are made of agents, MCP servers, skills, webhooks and schedules — and
+        you do not have to click any of it together. The operator agent reaches back into Vibeprod
+        through a private MCP server inside the broker: it creates the agent, attaches the servers
+        and skills, adds the provider and verifies the key in a throwaway container, then wires the
+        webhook and the schedule. You watch it happen in a normal transcript, and nothing is
+        deleted without your say-so.
+      </p>
+
+      <div class="case__body">
+        <div>
+          <p class="pane-label" data-i18n="lbl.say">What you type</p>
+          <div class="mock">
+            <div class="mock__bar"><span class="mock__dots"><i></i><i></i><i></i></span><span class="mock__url">localhost:8000 — new session</span></div>
+            <div class="mock__body">
+              <p class="m-txt" style="font-size:0.92rem" data-i18n="c7.prompt">
+                “Make me a review agent for pull requests: give it GitHub, run it from a webhook
+                called <code>pr-review</code>, and send the result to my Telegram. Use DeepSeek —
+                here is the key.”
+              </p>
+            </div>
+            <p class="mock__cap" data-i18n="c7.cap1">The home screen — plain language, no forms</p>
+          </div>
+          <div class="gain" style="margin-top:1.2rem;border-top:0;padding-top:0">
+            <div><b data-i18n="gain.note">Worth knowing</b><span data-i18n="c7.note">The operator's MCP endpoint is not in the catalog and cannot be attached to other agents: its URL and bearer secret are injected only into operator sessions.</span></div>
+          </div>
+        </div>
+
+        <div>
+          <p class="pane-label" data-i18n="lbl.built">What exists a minute later</p>
+          <div class="mock">
+            <div class="mock__body">
+              <ul class="rows">
+                <li><svg><use href="#i-check"/></svg><span data-i18n="c7.b1">agent <b>code-reviewer</b> — mode, model, permissions, system prompt</span></li>
+                <li><svg><use href="#i-check"/></svg><span data-i18n="c7.b2">mcp <b>github</b> attached, token stored</span></li>
+                <li><svg><use href="#i-check"/></svg><span data-i18n="c7.b3">provider <b>deepseek</b> — key verified in a probe container, models listed</span></li>
+                <li><svg><use href="#i-check"/></svg><span data-i18n="c7.b4">webhook <b>pr-review</b> with a fresh secret</span></li>
+                <li><svg><use href="#i-check"/></svg><span data-i18n="c7.b5">telegram notifications on, failures only</span></li>
+              </ul>
+            </div>
+            <p class="mock__cap" data-i18n="c7.cap2">Illustration — every object shows up in the UI as if you had made it by hand</p>
+          </div>
+          <figure class="shot" style="margin-top:0.8rem">
+            <img src="screenshots/home.png" data-i18n-alt="c7.alt" alt="The Vibeprod home screen with a prompt box for describing the automation you want." loading="lazy" width="1440" height="900">
+            <figcaption data-i18n="c7.shotcap">The real home screen — this is where the sentence above goes</figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <div class="recipe">
+        <span class="recipe__l" data-i18n="lbl.recipe">Assembled from</span>
+        <span class="chip chip--sig">operator <b>guardian mcp</b></span>
+        <span class="chip">agents · mcp · skills</span>
+        <span class="chip">providers · webhooks · schedules</span>
+      </div>
+    </article>
+
+    <div class="cta">
+      <h3 data-i18n="cta.h">Your case is probably four objects and one cron line</h3>
+      <p data-i18n="cta.p">
+        Four triggers, one container per session, three ways for the answer to come back.
+        Everything above runs on one FastAPI process and a SQLite file — on your machine,
+        on your keys.
+      </p>
+      <div class="hero__actions" style="justify-content:center">
+        <a class="btn btn--primary" href="#quickstart" data-i18n="btn.quickstart">Quick start</a>
+        <a class="btn" href="https://github.com/katskov-dev/vibeprod" data-i18n="btn.github">Get it on GitHub</a>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -992,6 +2132,172 @@ const RU = {
   "verdict.no.h": "Берите другое, если",
   "verdict.no.p": "Нужен доступ по пользователям для команды, хостинг с SLA или зрелый процесс ревью пул-реквестов из коробки.",
 
+  "btn.cases": "Кейсы",
+
+  "eyebrow.cases": "Кейсы",
+  "cases.title": "Семь вещей, которые люди оставляют работать",
+  "cases.lede": "Панель управления стоит своего места на диске только если на ней что-то полезное крутится. Каждый кейс ниже — это один триггер, один агент и одно место, куда приходит ответ, с точной обвязкой под капотом: соберёте за вечер. Цветная точка — это триггер: <b style=\"color:var(--sig-manual)\">вручную</b>, <b style=\"color:var(--sig-schedule)\">расписание</b>, <b style=\"color:var(--sig-webhook)\">вебхук</b>, <b style=\"color:var(--sig-chat)\">чат</b>.",
+
+  "ci1.t": "Ревью пул-реквестов",
+  "ci1.s": "вебхук из CI → ревью в PR",
+  "ci2.t": "Триаж инцидентов",
+  "ci2.s": "алерт → диагноз → issue → Telegram",
+  "ci3.t": "Утренний обзор веба",
+  "ci3.s": "cron → настоящий браузер → скриншоты",
+  "ci4.t": "Ночное обслуживание репо",
+  "ci4.s": "cron → тесты, зависимости, TODO → issues",
+  "ci5.t": "Цифры к понедельнику",
+  "ci5.s": "SQL → CSV в проект → чат",
+  "ci6.t": "Консоль в кармане",
+  "ci6.s": "Telegram → те же сессии, что в вебе",
+  "ci7.t": "Опишите — получите",
+  "ci7.s": "агент-оператор собирает кейсы 01–06",
+
+  "lbl.flow": "Как проходит один запуск",
+  "lbl.lands": "Что появляется в пул-реквесте",
+  "lbl.arrives": "Что приходит на телефон",
+  "lbl.sees": "Что видит агент и что получаете вы",
+  "lbl.night": "Внутри контейнера, 03:04",
+  "lbl.report": "Запуск и его результат",
+  "lbl.behave": "Как это себя ведёт",
+  "c5.sql": "<span class=\"c\">-- что выполнил агент</span>\nSELECT date_trunc(<span class=\"p\">'day'</span>, created_at) d,\n       count(*) signups\n  FROM users\n WHERE created_at &gt; now() - <span class=\"p\">'7 days'</span>::interval\n GROUP BY <span class=\"p\">1</span> ORDER BY <span class=\"p\">1</span>;",
+  "lbl.pocket": "Суббота, ноутбука рядом нет",
+  "lbl.say": "Что вы печатаете",
+  "lbl.built": "Что существует через минуту",
+  "lbl.recipe": "Собрано из",
+
+  "gain.before": "Было",
+  "gain.after": "Стало",
+  "gain.note": "Важно знать",
+  "sev.block": "блокер",
+  "sev.watch": "внимание",
+  "sev.nit": "мелочь",
+  "tag.deps": "зависимости",
+  "tag.debt": "техдолг",
+  "tag.dead": "мёртвый код",
+
+  "c1.kicker": "Вебхук из CI",
+  "c1.title": "Каждый пул-реквест отревьюен до того, как его откроет человек",
+  "c1.lede": "GitHub Action отправляет номер PR на адрес вебхука. Агент-ревьюер выкачивает ветку внутри своего контейнера, читает диф через MCP-сервер github, прогоняет тесты и пишет ревью обратно в PR. С <code>?wait=180</code> задача в CI ждёт результат и печатает его в своём же логе — без опроса и без второй джобы.",
+  "c1.s1": "CI дёргает вебхук",
+  "c1.s2": "Брокер поднимает сессию",
+  "c1.s2d": "метка <b>вебхук</b> · свой контейнер · свой порт · свой токен",
+  "c1.s3": "Агент делает работу",
+  "c1.s3d": "<b>code-reviewer</b> · mcp: github, files · читает диф, грепает репозиторий, гоняет <b>pytest -q</b>",
+  "c1.s4": "Ответ уходит двумя путями",
+  "c1.s4d": "комментарий в PR и событие <b>session.completed</b> в ваш исходящий вебхук — с подписью HMAC-SHA256 и повторами при сбое",
+  "c1.rev0": "Прогнал тесты на ветке: <code>128 passed, 1 failed</code>. Три места стоят взгляда.",
+  "c1.rev1": "<code>upload.py:88</code> — клиент S3 создаётся на каждый файл; 400 файлов — это 400 TLS-рукопожатий.",
+  "c1.rev2": "<code>test_batch.py</code> — падает путь с пустым манифестом, это не флак. Воспроизвёл дважды.",
+  "c1.rev3": "Цикл ретраев проглатывает <code>KeyboardInterrupt</code> вместе со всем остальным.",
+  "c1.cap": "Иллюстрация — текст ревью такой, какой попросите в промпте",
+  "c1.before": "Диф ждёт того, у кого будет время, а тесты крутятся где-то, куда надо пойти и посмотреть.",
+  "c1.after": "Первый проход сделан к моменту, когда придёт уведомление, — на вашем железе и вашем ключе.",
+
+  "c2.kicker": "Вебхук из системы алертов",
+  "c2.title": "Ночной алерт приходит уже разобранным",
+  "c2.lede": "Alertmanager, Sentry или чекер аптайма отправляет сработавший алерт на вебхук. Агент-дежурный поднимает свежие логи, грепает репозиторий по падающему символу, сверяет с последними деплоями — и делает две вещи, которых не делает дашборд: заводит задачу через <code>issue_create</code> и присылает короткую версию через <code>telegram_send</code>. Вы просыпаетесь к гипотезе, а не к графику.",
+  "c2.s1": "Алерт сработал",
+  "c2.s2": "Агент собирает контекст",
+  "c2.s2d": "логи, <b>git log --since</b>, падающий хендлер, три последних деплоя",
+  "c2.s3": "Записывает найденное",
+  "c2.s3d": "заголовок, находки, теги — через секунду видно в разделе Issues",
+  "c2.s4": "И будит по-человечески",
+  "c2.s4d": "или чат уведомлений, настроенный присылать только сбои",
+  "c2.alert": "алерт · api-gateway · сработал 00:41",
+  "c2.m1h": "HTTP 5xx 4.1% на api-gateway",
+  "c2.m1": "Началось в 00:38, сразу после выката <code>a91f2c</code>. Все ошибки — на <code>POST /v1/batch</code>, остальное ровно.",
+  "c2.m2": "Новый код обращается к <code>manifest[\"items\"]</code> без значения по умолчанию: пустой манифест от мобильного клиента даёт <code>KeyError</code>, а хендлер превращает его в 500.",
+  "c2.m3": "Завёл как <code>#137</code>. Откат <code>a91f2c</code> должен остановить; починка — две строки.",
+  "c2.m4": "откати и открой PR с фиксом",
+  "c2.typing": "code-reviewer работает…",
+  "c2.cap": "Иллюстрация — ответ продолжает ту же сессию, контекст не теряется",
+  "c2.before": "Пейджер с метрикой и пятнадцать минут на то, чтобы вообще въехать в контекст.",
+  "c2.after": "Названный подозрительный коммит, заведённая задача и чат, которому можно ответить не вставая.",
+
+  "c3.kicker": "Расписание · 09:00 по будням",
+  "c3.title": "Утренняя сводка, которую агент правда посмотрел глазами",
+  "c3.lede": "Это не скрапер, угадывающий разметку: встроенный сервис playwright даёт агенту настоящий браузер в отдельном контейнере. Он открывает нужные страницы — цены конкурентов, статус-борд, ваш собственный чекаут, — снимает скриншоты, кладёт их в файлы проекта через <code>upload_file</code> и приносит сводку вместе с картинками. Скилл <code>screenshot-to-files</code> идёт в комплекте и связывает эти два шага.",
+  "c3.s1": "Сработало расписание",
+  "c3.s1d": "каждый запуск записан вместе с результатом",
+  "c3.s2": "Настоящий браузер открывает страницы",
+  "c3.s2d": "сервис playwright · свой контейнер в сети <b>vibeprod-mcp</b> · поднимается по требованию",
+  "c3.s3": "Скриншоты становятся файлами проекта",
+  "c3.s3d": "ссылка, которая переживёт контейнер",
+  "c3.s4": "Сводка приходит с картинками",
+  "c3.s4d": "текст и изображения — прямо в чат",
+  "c3.plan": "Тариф Team",
+  "c3.dh": "Утренняя сводка · пятница",
+  "c3.d1": "Конкурент опустил тариф Team с $29 до $24 и вынес SSO из Enterprise. Скриншот приложен.",
+  "c3.d2": "Ваша страница статуса зелёная; чекаут прошёл 3 из 3 попыток.",
+  "c3.cap": "Иллюстрация — те же файлы остаются доступны в разделе «Файлы»",
+
+  "c4.kicker": "Расписание · каждую ночь",
+  "c4.title": "Скучная работа по репозиторию — пока вы спите",
+  "c4.lede": "По сессии на репозиторий, каждая в своём контейнере: поднять зависимости, прогнать тесты на обновлённом дереве, пройтись по TODO, поискать мёртвый модуль, который никто не импортировал с марта. Ничего не пушится без вашего слова — на выходе задачи в трекере, заведённые агентом через <code>issue_create</code> и ждущие вас утром. Сборка, которая пошла совсем не так, унесла с собой только контейнер.",
+  "c4.s1": "03:00, по сессии на репозиторий",
+  "c4.s1d": "простаивающие контейнеры потом убираются сами",
+  "c4.s2": "Работа идёт внутри контейнера",
+  "c4.s2d": "git, ripgrep, python и openssh уже в образе воркера; хост не трогается",
+  "c4.s3": "Находки становятся задачами, а не простынёй текста",
+  "c4.s3d": "с тегами, поиском и закрытием",
+  "c4.s4": "Сводка догоняет вас",
+  "c4.s4d": "чат уведомлений: на каждый запуск или только на упавшие",
+  "c4.i1": "Запинить httpx&lt;0.28 или задать таймаут явно",
+  "c4.i2": "3 TODO старше полугода в billing/",
+  "c4.i3": "export/legacy.py больше никто не импортирует",
+  "c4.cap": "Иллюстрация — три задачи, заведённые агентом, открыты в трекере",
+  "c4.before": "Обслуживание откладывается, пока зависимость не сломает что-нибудь во время релиза.",
+  "c4.after": "Короткий список с тегами каждое утро — а сломавшаяся сборка сломалась в контейнере в три часа ночи.",
+
+  "c5.kicker": "Расписание · понедельник 08:30",
+  "c5.title": "Цифры понедельника — в чате, без места в BI",
+  "c5.lede": "Один раз добавьте MCP-сервер postgres в каталог, прикрепите к агенту одной кнопкой — и еженедельный отчёт пишет себя сам: запрос, сравнение с прошлой неделей, CSV в хранилище проекта, короткая версия в чат. Доступы к базе лежат в вашей же записи каталога, а строки не покидают машину: модель видит только то, что агент положил в ответ.",
+  "c5.s1": "Утро понедельника, до стендапа",
+  "c5.s2": "Агент ходит в базу напрямую",
+  "c5.s2d": "mcp <b>postgres</b> из каталога · роль только на чтение, ваши доступы",
+  "c5.s3": "Сырая таблица сохраняется",
+  "c5.s3d": "недельные CSV копятся в проекте, у каждого своя ссылка",
+  "c5.s4": "Вам достаётся фраза, а не таблица",
+  "c5.s4d": "что сдвинулось, насколько и что выглядит подозрительно",
+  "c5.title2": "Регистрации, 7 дней",
+  "c5.wow": "неделя к неделе",
+  "c5.note": "Всплеск на выходных — это один реферальный источник, а не органика; стоит проверить, прежде чем радоваться.",
+  "c5.cap": "Иллюстрация — график здесь вместо того, что вы попросите сказать агента",
+
+  "c6.kicker": "Сообщение вашему боту",
+  "c6.title": "Консоль в кармане",
+  "c6.lede": "Telegram живёт внутри брокера на long polling — без публичного URL, без туннеля, без лишней зависимости. Первое сообщение открывает сессию, следующие продолжают её, а ответ дописывается правками в сообщение бота. <code>/agents</code> покажет список, <code>/agent 3</code> переключит, <code>/new</code> начнёт заново, <code>/abort</code> остановит запуск. Откройте потом веб-интерфейс — это та же сессия с полным транскриптом.",
+  "c6.s1": "Long polling, а не вебхук",
+  "c6.s1d": "токен бота и разрешённые user id задаются в интерфейсе; машина остаётся закрытой наружу",
+  "c6.s2": "Один тред — одна сессия",
+  "c6.s2d": "история лежит в docker-томе, поэтому воркер можно перезапустить под вами",
+  "c6.s3": "Команды там, где их ждёшь",
+  "c6.s4": "Продолжить за столом",
+  "c6.s4d": "<b>/link</b> открывает ту же сессию в вебе — тот же транскрипт, тот же контейнер",
+  "c6.m1": "почему стейджинг отдаёт 502 после деплоя?",
+  "c6.m2": "Гейтвей не достучится до <code>orders</code>: новый compose переименовал сервис в <code>orders-api</code>, а upstream в nginx всё ещё смотрит на <code>orders</code>.",
+  "c6.m3": "Одна строка в <code>nginx.conf</code>. Прислать патч?",
+  "c6.m4": "Открыть эту сессию в браузере: <code>localhost:8000/#s/9c2a…</code>",
+
+  "c7.kicker": "Вы, на главном экране",
+  "c7.title": "Опишите автоматизацию — получите автоматизацию",
+  "c7.lede": "Шесть кейсов выше собраны из агентов, MCP-серверов, скиллов, вебхуков и расписаний — и накликивать это руками не нужно. Агент-оператор дотягивается до самого Vibeprod через приватный MCP-сервер внутри брокера: создаёт агента, подключает серверы и скиллы, добавляет провайдера и проверяет ключ в одноразовом контейнере, потом заводит вебхук и расписание. Вы смотрите на это в обычном транскрипте, и ничего не удаляется без вашего слова.",
+  "c7.prompt": "«Сделай агента для ревью пул-реквестов: дай ему GitHub, запускай вебхуком <code>pr-review</code>, результат присылай мне в Telegram. Провайдер — DeepSeek, вот ключ.»",
+  "c7.cap1": "Главный экран — обычными словами, без форм",
+  "c7.note": "MCP-эндпоинт оператора не лежит в каталоге и не прикрепляется к другим агентам: его URL и bearer-секрет попадают только в сессии оператора.",
+  "c7.b1": "агент <b>code-reviewer</b> — mode, модель, permissions, системный промпт",
+  "c7.b2": "mcp <b>github</b> подключён, токен сохранён",
+  "c7.b3": "провайдер <b>deepseek</b> — ключ проверен probe-контейнером, модели перечислены",
+  "c7.b4": "вебхук <b>pr-review</b> со свежим секретом",
+  "c7.b5": "уведомления в Telegram включены, только на сбои",
+  "c7.cap2": "Иллюстрация — каждый объект появляется в интерфейсе так, будто вы завели его руками",
+  "c7.alt": "Главный экран Vibeprod с полем для описания нужной автоматизации.",
+  "c7.shotcap": "Настоящий главный экран — сюда и уходит фраза выше",
+
+  "cta.h": "Ваш кейс — это, скорее всего, четыре объекта и одна строка cron",
+  "cta.p": "Четыре триггера, по контейнеру на сессию, три способа вернуть ответ. Всё, что выше, крутится на одном процессе FastAPI и файле SQLite — на вашей машине, на ваших ключах.",
+
   "eyebrow.qs": "Быстрый старт",
   "qs.title": "Запуск примерно за минуту",
   "qs.lede": "Нужны Docker и Python 3.11+ — или только Docker. Первый запуск скачивает образ opencode и собирает поверх него образ воркера, с git и openssh, чтобы агенты могли работать с репозиториями.",
@@ -1044,6 +2350,25 @@ const RU = {
   document.querySelectorAll(".langsw button").forEach(b => {
     b.addEventListener("click", () => apply(b.dataset.lang));
   });
+})();
+</script>
+
+<script>
+/* Появление кейсов по мере прокрутки: одна строка состояния, без библиотек. */
+(function () {
+  const items = document.querySelectorAll(".reveal");
+  if (!items.length) return;
+  if (!("IntersectionObserver" in window) ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    items.forEach(el => el.classList.add("is-in"));
+    return;
+  }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); }
+    });
+  }, { rootMargin: "0px 0px -12% 0px", threshold: 0.12 });
+  items.forEach(el => io.observe(el));
 })();
 </script>
 
