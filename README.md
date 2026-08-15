@@ -335,6 +335,3 @@ opencode регистрирует модели провайдера только
 ## Лицензия
 
 MIT — см. [LICENSE](LICENSE). © 2026 Pavel Katskov.
-
-Построено на [opencode](https://github.com/sst/opencode) от Anomaly Innovations,
-тоже MIT.
