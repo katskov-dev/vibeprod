@@ -2238,11 +2238,41 @@ function buildCronFromSimple(body) {
   return cron;
 }
 
+function parseCronToSimple(cron) {
+  // Обратная к buildCronFromSimple: cron → значения полей простого режима.
+  const s = { freq: 'day', interval: '30', minute: '0', time: '09:00', dom: '1', dow: [], ok: true };
+  const parts = String(cron || '').trim().split(/\s+/);
+  if (parts.length !== 5) { s.ok = false; return s; }
+  const [min, hour, dom, mon, dow] = parts;
+  const pad = (n) => String(n).padStart(2, '0');
+  const m = min.match(/^\*\/(\d+)$/);
+  if (m && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    s.freq = 'minute'; s.interval = m[1]; return s;
+  }
+  if (/^\d+$/.test(min) && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    s.freq = 'hour'; s.minute = min; return s;
+  }
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '*') {
+    s.freq = 'day'; s.time = `${pad(hour)}:${pad(min)}`; return s;
+  }
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && dow !== '*') {
+    s.freq = 'week'; s.time = `${pad(hour)}:${pad(min)}`;
+    s.dow = dow.split(',').filter(d => DOW_RU[d]);
+    return s;
+  }
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && /^\d+$/.test(dom) && mon === '*' && dow === '*') {
+    s.freq = 'month'; s.time = `${pad(hour)}:${pad(min)}`; s.dom = dom; return s;
+  }
+  s.ok = false;
+  return s;
+}
+
 function schedModal(agents, s) {
   s = s || { agent_id: agents[0].id, title: '', prompt: '', cron: '0 9 * * *', timezone: 'Europe/Moscow', enabled: true };
+  const simple = parseCronToSimple(s.cron);
   const dowCheckboxes = Object.entries(DOW_RU).map(([v, l]) => `
     <label class="flex items-center gap-1.5 text-xs">
-      <input type="checkbox" name="sched-dow" value="${v}" class="accent-sky-600">
+      <input type="checkbox" name="sched-dow" value="${v}" ${simple.dow.includes(v) ? 'checked' : ''} class="accent-sky-600">
       <span class="text-neutral-400">${l}</span>
     </label>`).join('');
   const body = `
@@ -2267,25 +2297,25 @@ function schedModal(agents, s) {
         { v: 'day', l: 'ежедневно' },
         { v: 'week', l: 'по дням недели' },
         { v: 'month', l: 'по числам месяца' },
-      ], 'day')}
+      ], simple.freq)}
       <div data-freq="minute" class="hidden mb-3">
-        ${formInput('Интервал, минут', 'sched-interval', '30', '30')}
+        ${formInput('Интервал, минут', 'sched-interval', simple.interval, '30')}
       </div>
       <div data-freq="hour" class="hidden mb-3">
-        ${formInput('Минута часа (0–59)', 'sched-minute', '0', '0')}
+        ${formInput('Минута часа (0–59)', 'sched-minute', simple.minute, '0')}
       </div>
       <div data-freq="day" class="hidden mb-3">
-        ${formInput('Время', 'sched-time', '09:00', '', 'time')}
+        ${formInput('Время', 'sched-time', simple.time, '', 'time')}
       </div>
       <div data-freq="week" class="hidden mb-3">
         <div class="text-xs text-neutral-400 mb-1.5">Дни недели</div>
         <div class="flex flex-wrap gap-3 mb-3">${dowCheckboxes}</div>
-        ${formInput('Время', 'sched-time', '09:00', '', 'time')}
+        ${formInput('Время', 'sched-time', simple.time, '', 'time')}
       </div>
       <div data-freq="month" class="hidden mb-3">
         <div class="grid grid-cols-2 gap-3">
-          ${formInput('День месяца (1–31)', 'sched-dom', '1', '1')}
-          ${formInput('Время', 'sched-time', '09:00', '', 'time')}
+          ${formInput('День месяца (1–31)', 'sched-dom', simple.dom, '1')}
+          ${formInput('Время', 'sched-time', simple.time, '', 'time')}
         </div>
       </div>
       <div class="text-xs text-neutral-500 mt-1">CRON: <span id="cron-preview" class="mono text-sky-300">${esc(s.cron)}</span> · ${esc(cronHuman(s.cron))}</div>
@@ -2326,7 +2356,20 @@ function schedModal(agents, s) {
     $('#mode-simple', mbody).className = `px-3 py-1.5 rounded-lg ${simple ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}`;
     $('#mode-cron', mbody).className = `px-3 py-1.5 rounded-lg ${simple ? 'hover:bg-neutral-800/60' : 'bg-neutral-800'}`;
   };
-  $('#mode-simple', mbody).onclick = () => { setMode(true); buildCronFromSimple(mbody); };
+  $('#mode-simple', mbody).onclick = () => {
+    const cronVal = $('[name="cron"]', $('#mode-cron-pane', mbody)).value.trim();
+    const si = parseCronToSimple(cronVal);
+    if (si.ok) {
+      $('[name="sched-freq"]', mbody).value = si.freq;
+      $('[name="sched-interval"]', mbody).value = si.interval;
+      $('[name="sched-minute"]', mbody).value = si.minute;
+      $$('[name="sched-time"]', mbody).forEach(el => { el.value = si.time; });
+      $('[name="sched-dom"]', mbody).value = si.dom;
+      $$('[name="sched-dow"]', mbody).forEach(cb => { cb.checked = si.dow.includes(cb.value); });
+    }
+    setMode(true);
+    updateFields();
+  };
   $('#mode-cron', mbody).onclick = () => setMode(false);
   const updateFields = () => {
     const freq = $('[name="sched-freq"]', mbody).value;
@@ -2350,7 +2393,9 @@ function schedModal(agents, s) {
     if (freq === 'month') $('[name="sched-dom"]', mbody).value = days;
     updateFields();
   });
-  setMode(true);
+  // Распознанный cron открываем в простом режиме с его значениями,
+  // нестандартный — в CRON-режиме, чтобы не затирать его дефолтами.
+  setMode(simple.ok);
   updateFields();
 }
 
