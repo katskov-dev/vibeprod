@@ -10,10 +10,21 @@ def slug(name):
 
 
 def _parse_perm(raw):
+    """Нормализует permission агента к объекту.
+
+    opencode 1.0.196+ требует объект {edit, bash, webfetch}, старые значения в
+    БД/UI — строка "allow"/"ask"/"deny" (иначе ConfigInvalidError, воркер
+    отвечает 500 на /config/providers и сессия не стартует).
+    """
     try:
-        return json.loads(raw or '"allow"')
+        perm = json.loads(raw or '"allow"')
     except (ValueError, TypeError):
-        return "allow"
+        perm = "allow"
+    if isinstance(perm, str):
+        perm = {"edit": perm, "bash": perm}
+    if isinstance(perm, dict):
+        return perm
+    return {"edit": "allow", "bash": "allow"}
 
 
 def _write_agent_file(wdir, agent):
@@ -82,11 +93,13 @@ def _build_mcp(mcp_rows):
     return mcp
 
 
-def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None):
+def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None, broker_mcp=None):
     """Пишет opencode.json + .opencode/ в wdir. Возвращает имя default-агента.
 
     guardian_mcp — синтетическая запись MCP агента-оператора (подмешивается
     только в workspace guardian-сессий, в каталог не попадает).
+    broker_mcp — синтетическая запись встроенных инструментов Vibeprod
+    (telegram и т.п.), подмешивается в КАЖДУЮ сессию.
     """
     wdir.mkdir(parents=True, exist_ok=True)
     for a in agents_rows:
@@ -101,9 +114,11 @@ def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None)
         "$schema": "https://opencode.ai/config.json",
         "model": default["model"] or DEFAULT_MODEL_FALLBACK,
         "default_agent": default["name"],
+        # opencode 1.0.196+ требует объект (строка "allow" → ConfigInvalidError)
         "permission": {"edit": "allow", "bash": "allow"},
     }
-    mcp = _build_mcp(list(mcp_rows) + ([guardian_mcp] if guardian_mcp else []))
+    synthetic = [m for m in (guardian_mcp, broker_mcp) if m]
+    mcp = _build_mcp(list(mcp_rows) + synthetic)
     if mcp:
         cfg["mcp"] = mcp
     (wdir / "opencode.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")

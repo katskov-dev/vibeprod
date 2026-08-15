@@ -615,3 +615,106 @@ def test_out_webhook_test_endpoint(client, monkeypatch):
     deliveries = client.get(f"/api/out-webhooks/{wid}/deliveries").json()
     assert len(deliveries) == 1
     assert deliveries[0]["event"] == "webhook.test"
+
+
+# ---------- broker MCP: встроенные telegram-инструменты воркеров ----------
+
+
+def test_broker_mcp_requires_bearer_secret(client):
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert client.post("/broker/mcp", json=body).status_code == 401
+    assert client.post("/broker/mcp", json=body, headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_broker_mcp_tools_list(client):
+    from app.guardian_mcp import get_secret
+
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    r = client.post("/broker/mcp", json=body, headers={"Authorization": f"Bearer {get_secret()}"})
+    assert r.status_code == 200, r.text
+    names = {t["name"] for t in r.json()["result"]["tools"]}
+    assert {"telegram_send", "telegram_send_file", "telegram_info"} <= names
+
+
+def test_broker_mcp_auth_machine_path_not_blocked_by_ui_auth(auth_client):
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert auth_client.post("/broker/mcp", json=body).status_code == 401  # bearer, а не cookie-редирект
+
+
+def test_broker_telegram_tools(client, monkeypatch, tmp_path):
+    import asyncio
+
+    from app import broker_mcp, channel, session_manager
+
+    sent = {}
+    filed = {}
+
+    async def fake_send(project_id, chat_id, text, reply_to=None):
+        sent.update(project_id=project_id, chat_id=chat_id, text=text, reply_to=reply_to)
+        return 123
+
+    async def fake_send_file(project_id, chat_id, content, filename, caption=None):
+        filed.update(project_id=project_id, chat_id=chat_id, content=content, filename=filename, caption=caption)
+        return 456
+
+    monkeypatch.setattr(channel, "send", fake_send)
+    monkeypatch.setattr(channel, "send_file", fake_send_file)
+
+    ws = tmp_path / "workspaces" / "sess1"
+    ws.mkdir(parents=True)
+    (ws / "report.html").write_text("<h1>отчёт</h1>", encoding="utf-8")
+    monkeypatch.setattr(session_manager, "host_ws_dir", lambda sid: ws)
+
+    # без конфига канала — понятная ошибка
+    r = asyncio.run(broker_mcp.call_tool("telegram_send", {"text": "привет"}, {"project_id": 1}))
+    assert r["isError"] and "не настроен" in r["content"][0]["text"]
+
+    _seed_config(notify_chat_id="111")
+    r = asyncio.run(broker_mcp.call_tool("telegram_send", {"text": "привет"}, {"project_id": 1}))
+    assert not r["isError"], r["content"][0]["text"]
+    assert sent["chat_id"] == "111" and sent["text"] == "привет" and sent["project_id"] == 1
+
+    # явный chat_id перекрывает notify_chat_id
+    r = asyncio.run(broker_mcp.call_tool("telegram_send", {"text": "x", "chat_id": "222"}, {"project_id": 1}))
+    assert sent["chat_id"] == "222"
+
+    # файл из workspace + подпись
+    ctx = {"session_id": "sess1", "project_id": 1}
+    r = asyncio.run(broker_mcp.call_tool("telegram_send_file", {"path": "report.html", "caption": "см. файл"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    assert filed["filename"] == "report.html" and filed["content"] == "<h1>отчёт</h1>".encode() and filed["caption"] == "см. файл"
+
+    # файл из текста
+    r = asyncio.run(broker_mcp.call_tool("telegram_send_file", {"content": '{"a": 1}', "filename": "data.json"}, ctx))
+    assert not r["isError"] and filed["content"] == b'{"a": 1}' and filed["filename"] == "data.json"
+
+    # выход за пределы workspace запрещён
+    r = asyncio.run(broker_mcp.call_tool("telegram_send_file", {"path": "../secret.txt"}, ctx))
+    assert r["isError"] and "пределы workspace" in r["content"][0]["text"]
+
+    # нет ни chat_id, ни notify_chat_id
+    from app import db
+
+    pid = db.query_one("SELECT id FROM projects ORDER BY id LIMIT 1")["id"]
+    db.execute("UPDATE telegram_config SET notify_chat_id='' WHERE project_id=?", (pid,))
+    r = asyncio.run(broker_mcp.call_tool("telegram_send", {"text": "x"}, {"project_id": 1}))
+    assert r["isError"] and "чат" in r["content"][0]["text"]
+
+
+def test_render_workspace_injects_broker_mcp(tmp_path):
+    from app.render import render_workspace
+
+    wdir = tmp_path / "ws"
+    render_workspace(
+        wdir,
+        [{"name": "general", "mode": "primary", "model": "m/m", "is_default": 1}],
+        [],
+        [],
+        broker_mcp={"name": "vibeprod", "type": "remote", "url": "http://h/broker/mcp", "headers": '{"Authorization":"Bearer x"}', "enabled": 1},
+    )
+    import json
+
+    cfg = json.loads((wdir / "opencode.json").read_text(encoding="utf-8"))
+    assert "vibeprod" in cfg["mcp"]
+    assert cfg["mcp"]["vibeprod"]["url"] == "http://h/broker/mcp"
+    assert cfg["mcp"]["vibeprod"]["headers"]["Authorization"] == "Bearer x"

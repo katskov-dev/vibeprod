@@ -1,11 +1,13 @@
 """Отправка сообщений в каналы из любого места брокера.
 
 Telegram-боты живут в telegram.py и слушают входящие; здесь — общая исходящая
-часть: разбивка длинного текста, retry по 429 и send(), которую можно звать
-откуда угодно (уведомления о завершении фоновых сессий и т.п.).
+часть: разбивка длинного текста, retry по 429 и send()/send_file(), которые
+можно звать откуда угодно (уведомления о завершении фоновых сессий, инструменты
+broker MCP и т.п.).
 """
 import asyncio
 import logging
+import mimetypes
 
 import httpx
 
@@ -15,6 +17,7 @@ log = logging.getLogger("vibeprod.channel")
 
 API = "https://api.telegram.org"
 MSG_LIMIT = 4000
+FILE_LIMIT = 48 * 1024 * 1024  # Telegram Bot API принимает до 50 МБ
 
 
 def split_text(text, limit=MSG_LIMIT):
@@ -33,9 +36,10 @@ def split_text(text, limit=MSG_LIMIT):
     return chunks
 
 
-async def api_call(client, token, method, **params):
+async def api_call(client, token, method, files=None, **params):
     for _ in range(4):
-        r = await client.post(f"/bot{token}/{method}", json=params)
+        kwargs = {"json": params} if files is None else {"data": params, "files": files}
+        r = await client.post(f"/bot{token}/{method}", **kwargs)
         if r.status_code == 429:
             retry = int((r.json().get("parameters") or {}).get("retry_after", 2)) + 1
             await asyncio.sleep(retry)
@@ -72,3 +76,38 @@ async def send(project_id, chat_id, text, reply_to=None):
                 break
             last = (r.get("result") or {}).get("message_id")
     return last
+
+
+async def send_file(project_id, chat_id, content, filename, caption=None):
+    """Шлёт файл (фото — sendPhoto, остальное — sendDocument) в Telegram-чат проекта.
+
+    content — bytes. Бросает RuntimeError, если канал не настроен или Telegram
+    отверг отправку.
+    """
+    row = db.query_one(
+        "SELECT token FROM telegram_config WHERE project_id=? AND enabled=1 AND token<>''",
+        (project_id,),
+    )
+    if not row:
+        raise RuntimeError(
+            f"у проекта {project_id} нет активного Telegram-канала (Автоматизация → Каналы)"
+        )
+    if len(content) > FILE_LIMIT:
+        raise RuntimeError("файл больше 48 МБ — Telegram не примет")
+    filename = filename or "file"
+    is_photo = filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+    method = "sendPhoto" if is_photo else "sendDocument"
+    key = "photo" if is_photo else "document"
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    async with httpx.AsyncClient(
+        base_url=API, timeout=httpx.Timeout(120.0, connect=10.0), trust_env=False
+    ) as client:
+        r = await api_call(
+            client,
+            row["token"],
+            method,
+            chat_id=chat_id,
+            caption=(caption or "")[:1000] or None,
+            files={key: (filename, content, content_type)},
+        )
+        return (r.get("result") or {}).get("message_id")

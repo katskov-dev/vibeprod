@@ -32,7 +32,9 @@ def _err(msg_id, code, message):
     return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
 
-async def _dispatch_one(msg, ctx=None):
+async def _dispatch_one(msg, ctx=None, tools=None, call_fn=None):
+    tools = TOOLS if tools is None else tools
+    call_fn = call_tool if call_fn is None else call_fn
     if not isinstance(msg, dict):
         return _err(None, -32700, "Parse error")
     msg_id = msg.get("id")
@@ -49,19 +51,19 @@ async def _dispatch_one(msg, ctx=None):
     if method == "ping":
         return _ok(msg_id, {})
     if method == "tools/list":
-        return _ok(msg_id, {"tools": TOOLS})
+        return _ok(msg_id, {"tools": tools})
     if method == "tools/call":
         params = msg.get("params") or {}
-        return _ok(msg_id, await call_tool(params.get("name"), params.get("arguments") or {}, ctx))
+        return _ok(msg_id, await call_fn(params.get("name"), params.get("arguments") or {}, ctx))
     return _err(msg_id, -32601, f"Method not found: {method}")
 
 
-async def _dispatch(payload, ctx=None):
+async def _dispatch(payload, ctx=None, tools=None, call_fn=None):
     if isinstance(payload, list):
-        responses = [await _dispatch_one(m, ctx) for m in payload]
+        responses = [await _dispatch_one(m, ctx, tools, call_fn) for m in payload]
         responses = [r for r in responses if r is not None]
         return responses if responses else None
-    return await _dispatch_one(payload, ctx)
+    return await _dispatch_one(payload, ctx, tools, call_fn)
 
 
 def _request_ctx(request: Request):

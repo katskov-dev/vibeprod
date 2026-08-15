@@ -20,6 +20,7 @@ from . import telegram
 from .api import (
     agents,
     auth as auth_api,
+    broker_mcp as broker_mcp_api,
     catalog,
     channels,
     files,
@@ -109,7 +110,7 @@ app.include_router(webhooks.router)
 app.include_router(ws.router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/api/auth"}
+PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/api/auth", "/api/health"}
 
 
 @app.middleware("http")
