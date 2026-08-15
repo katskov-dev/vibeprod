@@ -9,6 +9,7 @@ FROM ghcr.io/anomalyco/opencode:1.18.18@sha256:f3e00f8e25500150373c817e24b13f2f0
 #   python3 + pip — скрипты и установка пакетов;
 #   curl, jq     — HTTP и JSON;
 #   bash, make   — скрипты и сборка;
+#   sshpass      — ssh-доступ с паролем на удалённые серверы;
 #   zip, openssl, file — архивы, TLS/хеши, типы файлов.
 # Компиляторы (build-base) сознательно не включены — они раздувают образ
 # (учтите: на Alpine многие python-пакеты без готовых musl-wheels не
@@ -18,5 +19,6 @@ RUN apk add --no-cache \
     python3 py3-pip \
     curl jq \
     bash \
+    sshpass \
     make \
     zip openssl file
