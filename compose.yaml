@@ -81,8 +81,17 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+    # Сеть воркеров: files-MCP (в контейнере playwright) ходит в MinIO по
+    # имени контейнера vibeprod-minio — брокер в host-сети DNS не видит,
+    # а сервисы на этой сети видят.
+    networks:
+      - vibeprod-mcp
     mem_limit: ${VIBEPROD_MINIO_MEM:-256m}
     restart: unless-stopped
 
 volumes:
   minio-data:
+
+networks:
+  vibeprod-mcp:
+    name: vibeprod-mcp
