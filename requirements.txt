@@ -7,3 +7,4 @@ pytz
 pyyaml
 minio>=7.2
 python-multipart>=0.0.9
+asyncssh>=2.14

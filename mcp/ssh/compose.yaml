@@ -1,0 +1,19 @@
+services:
+  ssh:
+    build: .
+    image: vibeprod-ssh-mcp:latest
+    container_name: vibeprod-ssh
+    restart: unless-stopped
+    init: true
+    networks:
+      - vibeprod-mcp
+    environment:
+      - VIBEPROD_BROKER_URL=${VIBEPROD_BROKER_URL:-http://host.docker.internal:8000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  # Сеть создаёт основной compose.yaml (или брокер через docker SDK).
+  # Поднимите её заранее: docker compose up -d minio
+  vibeprod-mcp:
+    external: true

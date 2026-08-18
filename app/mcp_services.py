@@ -87,6 +87,7 @@ def ensure_running(entry):
         environment=want_env,
         mem_limit=os.environ.get("VIBEPROD_MCP_SERVICE_MEM") or "768m",
         restart_policy={"Name": "unless-stopped"},
+        extra_hosts={"host.docker.internal": "host-gateway"},
     )
 
 

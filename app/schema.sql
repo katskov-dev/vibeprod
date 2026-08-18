@@ -232,3 +232,48 @@ CREATE TABLE IF NOT EXISTS issues (
 );
 
 CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+
+CREATE TABLE IF NOT EXISTS ssh_servers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  host TEXT NOT NULL,
+  port INTEGER DEFAULT 22,
+  username TEXT NOT NULL,
+  auth_type TEXT DEFAULT 'key',
+  private_key TEXT DEFAULT '',
+  password TEXT DEFAULT '',
+  known_hosts TEXT DEFAULT '',
+  enabled INTEGER DEFAULT 1,
+  last_error TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS ssh_commands (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id INTEGER NOT NULL REFERENCES ssh_servers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  command TEXT NOT NULL,
+  arg_regex TEXT DEFAULT '',
+  timeout INTEGER DEFAULT 60,
+  enabled INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(server_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS ssh_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  server_id INTEGER REFERENCES ssh_servers(id) ON DELETE SET NULL,
+  command_id INTEGER REFERENCES ssh_commands(id) ON DELETE SET NULL,
+  command_name TEXT DEFAULT '',
+  params TEXT DEFAULT '',
+  status TEXT DEFAULT 'ok',
+  exit_code INTEGER,
+  output TEXT DEFAULT '',
+  duration_ms INTEGER,
+  started_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ssh_runs_server ON ssh_runs(server_id, id DESC);

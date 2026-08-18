@@ -8,6 +8,8 @@ ignore = [
     "E501",   # длину строк держим глазами, а не линтером
     "B008",   # Depends()/Query() в дефолтах аргументов — это идиома FastAPI
     "B904",   # `raise HTTPException(...) from exc` — шума больше, чем пользы
+    "UP041",  # asyncio.TimeoutError: dev-окружение на Python 3.9, прод на 3.12
+    "UP045",  # Optional[...] вместо X | None — то же самое
 ]
 
 [tool.pytest.ini_options]

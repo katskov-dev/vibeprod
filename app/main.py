@@ -31,6 +31,7 @@ from .api import (
     providers,
     schedules,
     sessions,
+    ssh,
     telegram as telegram_api,
     webhooks,
     ws,
@@ -107,6 +108,7 @@ app.include_router(projects.router)
 app.include_router(providers.router)
 app.include_router(sessions.router)
 app.include_router(schedules.router)
+app.include_router(ssh.router)
 app.include_router(telegram_api.router)
 app.include_router(webhooks.router)
 app.include_router(ws.router)
@@ -132,6 +134,8 @@ async def require_auth(request: Request, call_next):
         return await call_next(request)
     if path in ("/api/files/content", "/api/files/stat") and _file_token_ok(request):
         return await call_next(request)
+    if path in ("/api/ssh/config", "/api/ssh/runs") and _ssh_token_ok(request):
+        return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return RedirectResponse("/login")
@@ -142,6 +146,15 @@ def _file_token_ok(request: Request) -> bool:
     try:
         project_id = int(request.query_params.get("project_id") or "")
         return files_store.check_file_token(project_id, request.query_params.get("token") or "")
+    except (TypeError, ValueError):
+        return False
+
+
+def _ssh_token_ok(request: Request) -> bool:
+    """Эндпоинты ssh-MCP контейнера доступны по токену проекта в заголовке."""
+    try:
+        project_id = int(request.query_params.get("project_id") or "")
+        return files_store.check_file_token(project_id, request.headers.get("X-Vibeprod-Token") or "")
     except (TypeError, ValueError):
         return False
 

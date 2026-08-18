@@ -152,7 +152,7 @@ const VIEW_TITLES = {
   home: 'Начать работу', sessions: 'Сессии', issues: 'Issues', files: 'Файлы',
   agents: 'Агенты', providers: 'Провайдеры', 'mcp-catalog': 'MCP', skills: 'Скиллы',
   webhooks: 'Вебхуки', outwebhooks: 'Исходящие', schedules: 'Расписания',
-  channels: 'Каналы', projects: 'Настройки проекта',
+  channels: 'Каналы', projects: 'Настройки проекта', ssh: 'SSH',
 };
 
 function setNavOpen(open) {
@@ -222,6 +222,7 @@ async function refreshCurrentView() {
   else if (currentView === 'outwebhooks') renderAutomation('outwebhooks');
   else if (currentView === 'schedules' || currentView === 'automation') renderAutomation('schedules');
   else if (currentView === 'channels') renderChannels();
+  else if (currentView === 'ssh') renderSsh();
   else if (currentView === 'projects') renderProjects();
 }
 
@@ -248,6 +249,7 @@ function showView(view, arg) {
   else if (view === 'outwebhooks') renderAutomation('outwebhooks');
   else if (view === 'schedules' || view === 'automation') renderAutomation('schedules');
   else if (view === 'channels') renderChannels(arg);
+  else if (view === 'ssh') renderSsh(arg);
   else if (view === 'projects') renderProjects();
 }
 $('#nav').onclick = (e) => {
@@ -2975,6 +2977,271 @@ async function renderChannelConfig(channelId) {
   } else {
     st.innerHTML = `<span class="text-neutral-500">Канал не настроен — сохраните токен, и бот запустится.</span>`;
   }
+}
+
+/* ---------- ssh ---------- */
+async function renderSsh(arg) {
+  if (arg) return renderSshServer(arg);
+  const main = $('#main');
+  main.innerHTML = `
+    <div class="h-full flex flex-col">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+        <div>
+          <div class="text-lg font-semibold">SSH</div>
+          <div class="text-xs text-neutral-500">Серверы с белым списком команд: агент выполняет только разрешённые команды и читает логи запусков (MCP «ssh» из каталога).</div>
+        </div>
+        <button id="ssh-new" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">＋ Сервер</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6" id="ssh-list"></div>
+    </div>`;
+  $('#ssh-new').onclick = () => sshServerModal();
+  await refreshSsh();
+}
+
+async function refreshSsh() {
+  let data;
+  try { data = await api.get('/api/ssh/servers' + projQuery()); } catch (e) { return; }
+  const el = $('#ssh-list');
+  if (!el) return;
+  if (!data.length) {
+    el.innerHTML = `<div class="text-neutral-500 text-sm">Серверов нет. Добавьте сервер, разрешите команды и нажмите «Проверить подключение» — после этого MCP «ssh» сможет выполнять их.</div>`;
+    return;
+  }
+  el.innerHTML = data.map(s => `
+    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-5 mb-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="font-semibold flex items-center gap-2 flex-wrap">
+            <span class="mono text-sky-300">${esc(s.name)}</span>
+            <span class="mono text-xs text-neutral-400">${esc(s.username)}@${esc(s.host)}:${esc(s.port)}</span>
+            ${s.enabled ? '' : '<span class="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-500">выключен</span>'}
+            ${s.host_key_fingerprint
+              ? `<span class="text-xs px-2 py-0.5 rounded bg-emerald-900/50" title="ключ хоста сохранён">ключ хоста ✓</span>`
+              : '<span class="text-xs px-2 py-0.5 rounded bg-amber-900/50" title="ключ хоста не сохранён">хост не проверен</span>'}
+            <span class="text-xs px-2 py-0.5 rounded bg-neutral-800">${s.has_key ? 'ключ' : 'пароль'}</span>
+          </div>
+          ${s.host_key_fingerprint ? `<div class="text-xs mono text-neutral-500 mt-1">${esc(s.host_key_fingerprint)}</div>` : ''}
+          ${s.last_error ? `<div class="text-xs text-red-400 mt-1 truncate">${esc(s.last_error.slice(0, 200))}</div>` : ''}
+        </div>
+        <div class="flex gap-2 text-xs shrink-0 ml-3 flex-wrap justify-end">
+          <button class="ssh-cmds px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}">команды</button>
+          <button class="ssh-test px-3 py-1.5 rounded-lg border border-emerald-800 text-emerald-300 hover:bg-emerald-950" data-id="${s.id}">проверить</button>
+          <button class="ssh-edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}">изменить</button>
+          <button class="ssh-del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}">удалить</button>
+        </div>
+      </div>
+    </div>`).join('');
+  $$('.ssh-cmds', el).forEach(b => b.onclick = () => showView('ssh', b.dataset.id));
+  $$('.ssh-edit', el).forEach(b => b.onclick = () => {
+    const row = data.find(s => s.id === +b.dataset.id);
+    sshServerModal(row);
+  });
+  $$('.ssh-del', el).forEach(b => b.onclick = async () => {
+    if (!confirm('Удалить сервер и все его команды?')) return;
+    try { await api.del(`/api/ssh/servers/${b.dataset.id}`); }
+    catch (e) { return toast(e.message, 'error'); }
+    toast('Удалено', 'ok');
+    await refreshSsh();
+  });
+  $$('.ssh-test', el).forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const r = await api.post(`/api/ssh/servers/${b.dataset.id}/test`);
+      toast(`Подключение успешно (${r.fingerprint})`, 'ok');
+    } catch (e) {
+      if (e.message.includes('ключ хоста изменился')) {
+        if (confirm(`${e.message}\n\nПодтвердить замену ключа хоста?`)) {
+          try {
+            await api.post(`/api/ssh/servers/${b.dataset.id}/test`, { replace_host_key: true });
+            toast('Ключ хоста обновлён', 'ok');
+          } catch (e2) { toast(e2.message, 'error'); }
+        }
+      } else {
+        toast(e.message, 'error');
+      }
+    }
+    await refreshSsh();
+  });
+}
+
+function sshServerModal(s) {
+  const isEdit = !!s;
+  s = s || { name: '', host: '', port: 22, username: '', auth_type: 'key', private_key: '', password: '', enabled: 1 };
+  openModal(isEdit ? 'Изменить сервер SSH' : 'Добавить сервер SSH', `
+    ${formInput('Имя (для агента)', 'name', s.name, 'prod-db')}
+    <div class="grid grid-cols-3 gap-3">
+      ${formInput('Хост', 'host', s.host, '192.168.1.10')}
+      ${formInput('Порт', 'port', s.port, '22')}
+      ${formInput('Пользователь', 'username', s.username, 'deploy')}
+    </div>
+    ${formSelect('Аутентификация', 'auth_type', [{ v: 'key', l: 'Приватный ключ (PEM)' }, { v: 'password', l: 'Пароль' }], s.auth_type)}
+    ${formArea('Приватный ключ (PEM)', 'private_key', '', 5, isEdit ? 'оставьте пустым, чтобы не менять' : '-----BEGIN OPENSSH PRIVATE KEY-----')}
+    ${formInput('Пароль', 'password', '', isEdit ? 'оставьте пустым, чтобы не менять' : '', 'password')}
+    <label class="flex items-center gap-2 text-sm mb-3">
+      <input type="checkbox" name="enabled" ${s.enabled ? 'checked' : ''} class="accent-sky-600">
+      <span class="text-neutral-400 text-xs">включено</span>
+    </label>
+    <div class="text-xs text-neutral-500">После сохранения нажмите «Проверить подключение» — ключ хоста сохранится (TOFU), и агент сможет выполнять команды.</div>`,
+    async (close) => {
+      const f = readForm($('#modal-body'));
+      f.enabled = $('[name="enabled"]', $('#modal-body')).checked;
+      f.port = +f.port;
+      try {
+        if (isEdit) await api.put(`/api/ssh/servers/${s.id}`, f);
+        else await api.post('/api/ssh/servers', f);
+        close();
+        toast('Сохранено', 'ok');
+        await refreshSsh();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+async function renderSshServer(sid) {
+  let servers;
+  try { servers = await api.get('/api/ssh/servers' + projQuery()); } catch (e) { return; }
+  const s = servers.find(x => String(x.id) === String(sid));
+  if (!s) return showView('ssh');
+  const main = $('#main');
+  main.innerHTML = `
+    <div class="h-full flex flex-col">
+      <div class="px-6 py-4 border-b border-neutral-800 flex items-center gap-3">
+        <button id="ssh-back" class="px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm">← SSH</button>
+        <div class="text-lg font-semibold">${esc(s.name)}</div>
+        <span class="mono text-xs text-neutral-400">${esc(s.username)}@${esc(s.host)}:${esc(s.port)}</span>
+        ${s.host_key_fingerprint
+          ? `<span class="text-xs px-2 py-0.5 rounded bg-emerald-900/50">ключ хоста ✓</span>`
+          : '<span class="text-xs px-2 py-0.5 rounded bg-amber-900/50">хост не проверен</span>'}
+        ${s.last_error ? `<span class="text-xs text-red-400 truncate max-w-60">${esc(s.last_error.slice(0, 120))}</span>` : ''}
+        <div class="ml-auto flex gap-2">
+          <button id="ssh-srv-test" class="px-3 py-1.5 rounded-lg border border-emerald-800 text-emerald-300 hover:bg-emerald-950 text-sm">Проверить подключение</button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="font-semibold text-sm text-neutral-300">Разрешённые команды</div>
+          <button id="ssh-cmd-new" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium">＋ Команда</button>
+        </div>
+        <div id="ssh-cmd-list" class="mb-8"></div>
+        <div class="font-semibold text-sm text-neutral-300 mb-3">Журнал запусков</div>
+        <div id="ssh-runs"></div>
+      </div>
+    </div>`;
+  $('#ssh-back').onclick = () => showView('ssh');
+  $('#ssh-srv-test').onclick = async () => {
+    const b = $('#ssh-srv-test');
+    b.disabled = true;
+    try {
+      const r = await api.post(`/api/ssh/servers/${sid}/test`);
+      toast(`Подключение успешно (${r.fingerprint})`, 'ok');
+    } catch (e) {
+      if (e.message.includes('ключ хоста изменился')) {
+        if (confirm(`${e.message}\n\nПодтвердить замену ключа хоста?`)) {
+          try {
+            await api.post(`/api/ssh/servers/${sid}/test`, { replace_host_key: true });
+            toast('Ключ хоста обновлён', 'ok');
+          } catch (e2) { toast(e2.message, 'error'); }
+        }
+      } else {
+        toast(e.message, 'error');
+      }
+    }
+    renderSshServer(sid);
+  };
+  $('#ssh-cmd-new').onclick = () => sshCommandModal(sid);
+  await refreshSshCommands(sid);
+  await refreshSshRuns(sid);
+}
+
+async function refreshSshCommands(sid) {
+  let data;
+  try { data = await api.get(`/api/ssh/commands?server_id=${sid}`); } catch (e) { return; }
+  const el = $('#ssh-cmd-list');
+  if (!el) return;
+  if (!data.length) {
+    el.innerHTML = `<div class="text-neutral-500 text-sm mb-3">Команд нет. Добавьте шаблон, например: journalctl -u {service} -n {lines} — с regex-валидацией параметров.</div>`;
+    return;
+  }
+  el.innerHTML = data.map(c => `
+    <div class="rounded-xl border border-neutral-800 p-4 mb-2">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="font-semibold flex items-center gap-2 flex-wrap">
+            <span class="mono text-sky-300">${esc(c.name)}</span>
+            ${c.enabled ? '' : '<span class="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-500">выключена</span>'}
+            <span class="text-xs px-2 py-0.5 rounded bg-neutral-800">timeout ${esc(c.timeout)}с</span>
+          </div>
+          ${c.description ? `<div class="text-xs text-neutral-500 mt-1">${esc(c.description)}</div>` : ''}
+          <div class="text-xs mono text-neutral-400 mt-1 break-all bg-neutral-900 rounded px-2 py-1">${esc(c.command)}</div>
+          ${c.arg_regex ? `<div class="text-xs mono text-neutral-500 mt-1 break-all">regex: ${esc(c.arg_regex)}</div>` : ''}
+        </div>
+        <div class="flex gap-2 text-xs shrink-0">
+          <button class="ssh-cmd-edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${c.id}">изменить</button>
+          <button class="ssh-cmd-del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${c.id}">удалить</button>
+        </div>
+      </div>
+    </div>`).join('');
+  $$('.ssh-cmd-edit', el).forEach(b => b.onclick = () => {
+    const row = data.find(c => c.id === +b.dataset.id);
+    sshCommandModal(sid, row);
+  });
+  $$('.ssh-cmd-del', el).forEach(b => b.onclick = async () => {
+    if (!confirm('Удалить команду?')) return;
+    try { await api.del(`/api/ssh/commands/${b.dataset.id}`); }
+    catch (e) { return toast(e.message, 'error'); }
+    await refreshSshCommands(sid);
+  });
+}
+
+function sshCommandModal(sid, c) {
+  const isEdit = !!c;
+  c = c || { name: '', description: '', command: '', arg_regex: '', timeout: 60, enabled: 1 };
+  openModal(isEdit ? 'Изменить команду' : 'Добавить команду', `
+    ${formInput('Имя (для агента)', 'name', c.name, 'logs')}
+    ${formInput('Описание', 'description', c.description, 'Журнал сервиса')}
+    ${formInput('Команда (шаблон с {параметрами})', 'command', c.command, 'journalctl -u {service} -n {lines} --no-pager')}
+    ${formInput('Regex параметров (JSON)', 'arg_regex', c.arg_regex, '{"service": "^[a-z0-9-]{1,40}$", "lines": "^[1-9][0-9]{0,3}$"}')}
+    ${formInput('Таймаут, сек', 'timeout', c.timeout, '60')}
+    <label class="flex items-center gap-2 text-sm mb-3">
+      <input type="checkbox" name="enabled" ${c.enabled ? 'checked' : ''} class="accent-sky-600">
+      <span class="text-neutral-400 text-xs">включено</span>
+    </label>
+    <div class="text-xs text-neutral-500">Параметры без regex валидируются строгим набором символов (без пробелов). Каждый параметр экранируется — shell-инъекции невозможны.</div>`,
+    async (close) => {
+      const f = readForm($('#modal-body'));
+      f.enabled = $('[name="enabled"]', $('#modal-body')).checked;
+      f.timeout = +f.timeout;
+      f.server_id = +sid;
+      try {
+        if (isEdit) await api.put(`/api/ssh/commands/${c.id}`, f);
+        else await api.post('/api/ssh/commands', f);
+        close();
+        toast('Сохранено', 'ok');
+        await refreshSshCommands(sid);
+      } catch (e) { toast(e.message, 'error'); }
+    });
+}
+
+async function refreshSshRuns(sid) {
+  let data;
+  try { data = await api.get(`/api/ssh/runs?project_id=${currentProject}&server_id=${sid}&limit=30`); } catch (e) { return; }
+  const el = $('#ssh-runs');
+  if (!el) return;
+  if (!data.length) {
+    el.innerHTML = `<div class="text-neutral-500 text-sm">Запусков пока нет.</div>`;
+    return;
+  }
+  el.innerHTML = data.map(r => `
+    <details class="compact-card rounded-xl border border-neutral-800 p-4 mb-2">
+      <summary>
+        <span class="chev text-neutral-500 text-xs">▸</span>
+        <span class="mono text-xs text-sky-300">${esc(r.command_name || '—')}</span>
+        <span class="text-xs ${r.status === 'ok' ? 'text-emerald-400' : 'text-red-400'}">${r.status === 'ok' ? 'ok' : 'ошибка'}</span>
+        ${r.exit_code !== null && r.exit_code !== undefined ? `<span class="text-xs text-neutral-500">exit ${esc(r.exit_code)}</span>` : ''}
+        <span class="text-xs text-neutral-500">${esc((r.duration_ms ?? '') + ' мс')}</span>
+        <span class="text-xs text-neutral-500 ml-auto">${esc(r.started_at)}</span>
+      </summary>
+      <pre class="mono text-xs text-neutral-300 bg-neutral-900 rounded p-3 mt-2 overflow-x-auto max-h-80 overflow-y-auto">${esc(r.output || '')}</pre>
+    </details>`).join('');
 }
 
 /* ---------- mcp catalog ---------- */

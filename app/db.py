@@ -78,6 +78,20 @@ def init_db():
                 "\"X-Broker-Url\": \"{env:VIBEPROD_BROKER_URL}\"}', "
                 "'mcp/playwright', 'vibeprod-playwright', 8932, 'vibeprod-mcp', 1)"
             )
+        if not conn.execute("SELECT id FROM mcp_catalog WHERE name='ssh'").fetchone():
+            conn.execute(
+                "INSERT INTO mcp_catalog(name, description, kind, type, url, headers, "
+                "service_build_dir, service_container, service_port, service_network, builtin) "
+                "VALUES('ssh', 'SSH-доступ к серверам проекта с белым списком команд: "
+                "выполнение разрешённых команд (журналы, статус сервисов) и чтение "
+                "логов запусков. Серверы и команды настраиваются в «Автоматизация → SSH».', "
+                "'service', 'remote', "
+                "'http://vibeprod-ssh:8933/mcp', "
+                "'{\"X-Vibeprod-Project\": \"{env:VIBEPROD_PROJECT_ID}\", "
+                "\"X-Vibeprod-Token\": \"{env:VIBEPROD_FILE_TOKEN}\", "
+                "\"X-Broker-Url\": \"{env:VIBEPROD_BROKER_URL}\"}', "
+                "'mcp/ssh', 'vibeprod-ssh', 8933, 'vibeprod-mcp', 1)"
+            )
         if not conn.execute("SELECT id FROM skills WHERE name='screenshot-to-files'").fetchone():
             conn.execute(
                 "INSERT INTO skills(name, description, body) VALUES('screenshot-to-files', "
@@ -138,7 +152,7 @@ def init_db():
         )
         guardian = conn.execute("SELECT id FROM agents WHERE is_guardian=1 LIMIT 1").fetchone()
         if guardian:
-            for name in ("playwright", "files"):
+            for name in ("playwright", "files", "ssh"):
                 entry = conn.execute("SELECT * FROM mcp_catalog WHERE name=?", (name,)).fetchone()
                 if entry and not conn.execute(
                     "SELECT id FROM agent_mcp WHERE agent_id=? AND name=?", (guardian[0], name)
