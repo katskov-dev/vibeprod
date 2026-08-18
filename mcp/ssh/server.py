@@ -85,9 +85,9 @@ CACHE_TTL = 15
 
 
 def ctx_of(headers):
-    project = (headers.get("X-Vibeprod-Project") or "").strip()
-    token = (headers.get("X-Vibeprod-Token") or "").strip()
-    broker = (headers.get("X-Broker-Url") or FALLBACK_BROKER_URL).strip().rstrip("/")
+    project = (headers.get("x-vibeprod-project") or "").strip()
+    token = (headers.get("x-vibeprod-token") or "").strip()
+    broker = (headers.get("x-broker-url") or FALLBACK_BROKER_URL).strip().rstrip("/")
     if not project.isdigit():
         raise ToolError(
             "Не определён проект воркера (заголовок X-Vibeprod-Project). "

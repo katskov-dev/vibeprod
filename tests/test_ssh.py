@@ -86,6 +86,37 @@ def test_known_hosts_line_and_fingerprint():
     assert key_fingerprint(key).startswith("SHA256:")
 
 
+# ---------- HTTP-контекст и диспатч ----------
+
+
+def test_ctx_from_headers():
+    mod = _ssh_mcp_module()
+    ctx = mod.ctx_of(
+        {
+            "x-vibeprod-project": "42",
+            "x-vibeprod-token": "tok",
+            "x-broker-url": "http://broker:8000/",
+        }
+    )
+    assert ctx == {"project": 42, "token": "tok", "broker": "http://broker:8000"}
+
+
+def test_ctx_missing_project():
+    mod = _ssh_mcp_module()
+    with pytest.raises(mod.ToolError, match="X-Vibeprod-Project"):
+        mod.ctx_of({})
+
+
+def test_dispatch_tools_call_requires_project():
+    mod = _ssh_mcp_module()
+    res = mod.dispatch(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ssh_list_servers", "arguments": {}}},
+        {},
+    )
+    assert res["result"]["isError"] is True
+    assert "проект" in res["result"]["content"][0]["text"]
+
+
 # ---------- выполнение команд (локальный asyncssh-сервер) ----------
 
 
