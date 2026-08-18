@@ -136,6 +136,26 @@ def init_db():
         conn.execute(
             "UPDATE agents SET system_prompt=? WHERE is_guardian=1", (GUARDIAN_SYSTEM_PROMPT,)
         )
+        guardian = conn.execute("SELECT id FROM agents WHERE is_guardian=1 LIMIT 1").fetchone()
+        if guardian:
+            for name in ("playwright", "files"):
+                entry = conn.execute("SELECT * FROM mcp_catalog WHERE name=?", (name,)).fetchone()
+                if entry and not conn.execute(
+                    "SELECT id FROM agent_mcp WHERE agent_id=? AND name=?", (guardian[0], name)
+                ).fetchone():
+                    conn.execute(
+                        "INSERT INTO agent_mcp(agent_id, name, type, command, url, headers, environment, enabled) "
+                        "VALUES(?,?,?,?,?,?,?,1)",
+                        (
+                            guardian[0],
+                            entry["name"],
+                            entry["type"],
+                            entry["command"],
+                            entry["url"],
+                            entry["headers"],
+                            entry["environment"],
+                        ),
+                    )
         conn.commit()
     finally:
         conn.close()
