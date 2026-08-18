@@ -14,10 +14,19 @@ def _session_dict(row):
     return d
 
 
+# Лёгкий набор полей для списка: без result_json/prompt/workspace/токенов,
+# чтобы не тащить переписку целиком на каждый рендер списка.
+_LIST_COLUMNS = (
+    "s.id, s.agent_id, s.agent_name, s.project_id, s.title, s.source, "
+    "s.status, s.model, s.error, s.created_at, s.started_at, s.finished_at, "
+    "s.last_activity, p.name AS project_name"
+)
+
+
 @router.get("/sessions")
 def list_sessions(project_id: int = None):
     sql = (
-        "SELECT s.*, p.name AS project_name FROM sessions s "
+        f"SELECT {_LIST_COLUMNS} FROM sessions s "
         "LEFT JOIN projects p ON p.id=s.project_id "
     )
     params = ()
@@ -134,12 +143,7 @@ def get_messages(session_id: str):
         raise HTTPException(404, "сессия не найдена")
     result = None
     questions = []
-    if row["result_json"]:
-        try:
-            result = json.loads(row["result_json"])
-        except ValueError:
-            result = None
-    elif row["status"] == "running" and row["opencode_session_id"] and row["container_id"]:
+    if row["status"] == "running" and row["opencode_session_id"] and row["container_id"]:
         # рабочая сессия: отдаём живой транскрипт из воркера, чтобы чат
         # переживал обновление страницы
         try:
@@ -151,6 +155,15 @@ def get_messages(session_id: str):
             finally:
                 client.close()
         except Exception:
+            result = None
+    if result is None:
+        # завершённая/упавшая сессия: читаем сообщения отдельными строками,
+        # на старых сессиях откатываемся на result_json.
+        result = db.load_session_messages(session_id)
+    if result is None and row["result_json"]:
+        try:
+            result = json.loads(row["result_json"])
+        except ValueError:
             result = None
     return {
         "status": row["status"],

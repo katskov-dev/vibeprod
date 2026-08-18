@@ -215,6 +215,10 @@ class StreamManager:
                 status = "failed"
                 error = msg_error
         try:
+            db.save_session_messages(sid, result)
+        except Exception as exc:
+            log.warning("finalize save messages %s: %s", sid, exc)
+        try:
             db.execute(
                 "UPDATE sessions SET status=?, result_json=?, error=?, finished_at=datetime('now'), last_activity=datetime('now') WHERE id=?",
                 (status, json.dumps(result, ensure_ascii=False) if result is not None else None,

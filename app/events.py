@@ -40,7 +40,9 @@ def emit(event, data=None, main_loop=None):
 def session_event_data(sid, **extra):
     """Стандартный пейлоад для событий session.*: сводка сессии + ссылка на UI."""
     row = db.query_one(
-        "SELECT s.*, a.name AS agent_name, p.name AS project_name FROM sessions s "
+        "SELECT s.id, s.title, s.status, s.source, s.prompt, s.project_id, s.error, "
+        "a.name AS agent_name, p.name AS project_name "
+        "FROM sessions s "
         "LEFT JOIN agents a ON a.id=s.agent_id LEFT JOIN projects p ON p.id=s.project_id "
         "WHERE s.id=?",
         (sid,),

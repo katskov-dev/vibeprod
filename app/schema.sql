@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 
+CREATE TABLE IF NOT EXISTS session_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  msg_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id, seq);
+
 CREATE TABLE IF NOT EXISTS schedules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,

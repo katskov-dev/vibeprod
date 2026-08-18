@@ -1,3 +1,4 @@
+import json
 import os
 import secrets
 import sqlite3
@@ -170,3 +171,41 @@ def exec_many(sql, seq):
         conn.commit()
     finally:
         conn.close()
+
+
+def save_session_messages(sid, messages):
+    """Сохраняет сообщения сессии отдельными строками (msg_json на каждое).
+
+    Полный снапшот остаётся в sessions.result_json как fallback; эта таблица
+    позволяет читать переписку без парсинга одного большого JSON.
+    """
+    if messages is None:
+        return
+    conn = connect()
+    try:
+        conn.execute("DELETE FROM session_messages WHERE session_id=?", (sid,))
+        if messages:
+            conn.executemany(
+                "INSERT INTO session_messages(session_id, seq, msg_json) VALUES(?,?,?)",
+                [(sid, i, json.dumps(m, ensure_ascii=False)) for i, m in enumerate(messages, 1)],
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_session_messages(sid):
+    """Возвращает список сообщений сессии из session_messages (или None, если их нет)."""
+    rows = query(
+        "SELECT msg_json FROM session_messages WHERE session_id=? ORDER BY seq",
+        (sid,),
+    )
+    if not rows:
+        return None
+    out = []
+    for r in rows:
+        try:
+            out.append(json.loads(r["msg_json"]))
+        except ValueError:
+            continue
+    return out
