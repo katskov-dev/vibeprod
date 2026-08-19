@@ -12,10 +12,14 @@ X-Vibeprod-Session заголовка.
 import asyncio
 import json
 import os
+from pathlib import PurePosixPath
 
 from . import channel
 from . import db
+from . import files_store
 from . import session_manager
+
+DOWNLOAD_LIMIT = 512 * 1024 * 1024
 
 
 def get_secret():
@@ -264,6 +268,51 @@ def h_issue_delete(args, ctx):
     return {"ok": True}
 
 
+def h_file_download(args, ctx):
+    """Скачивает файл из файлов проекта (MinIO) в workspace воркера.
+
+    Исполняется на брокере: только он видит workspace сессии на хосте
+    (files MCP живёт в контейнере playwright и до воркера не дотягивается).
+    """
+    path = str(args.get("path") or "").strip().lstrip("/")
+    if not path or ".." in PurePosixPath(path).parts:
+        raise ToolError("path: путь к файлу в файлах проекта (например shots/отчёт.png)")
+    pid = ctx.get("project_id")
+    if pid is None:
+        raise ToolError("сессия не привязана к проекту — файлы проекта не определить")
+    sid = ctx.get("session_id")
+    if not sid:
+        raise ToolError("скачивание доступно только из сессии воркера")
+    dest = str(args.get("dest") or "").strip()
+    if dest.endswith("/"):
+        dest += PurePosixPath(path).name
+    if not dest:
+        dest = PurePosixPath(path).name
+    ws = session_manager.host_ws_dir(sid).resolve()
+    target = (ws / dest).resolve()
+    if not (target == ws or str(target).startswith(str(ws) + os.sep)):
+        raise ToolError("dest выходит за пределы workspace")
+    try:
+        obj = files_store.get_object(pid, path)
+    except Exception as exc:
+        raise ToolError(f"не удалось прочитать {path}: {exc}")
+    if obj.size is not None and obj.size > DOWNLOAD_LIMIT:
+        raise ToolError(f"файл больше {DOWNLOAD_LIMIT // (1024 * 1024)} МБ — не скачиваем")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    try:
+        with open(target, "wb") as fh:
+            for chunk in obj.stream(1024 * 1024):
+                written += len(chunk)
+                if written > DOWNLOAD_LIMIT:
+                    raise ToolError(f"файл больше {DOWNLOAD_LIMIT // (1024 * 1024)} МБ — не скачиваем")
+                fh.write(chunk)
+    except ToolError:
+        target.unlink(missing_ok=True)
+        raise
+    return {"ok": True, "path": str(target.relative_to(ws)), "name": target.name, "size": written}
+
+
 HANDLERS = {
     "telegram_info": h_telegram_info,
     "telegram_send": h_telegram_send,
@@ -272,6 +321,7 @@ HANDLERS = {
     "issue_list": h_issue_list,
     "issue_update": h_issue_update,
     "issue_delete": h_issue_delete,
+    "file_download": h_file_download,
 }
 
 BROKER_TOOLS = [
@@ -346,6 +396,18 @@ BROKER_TOOLS = [
         "Удалить issue. Требует подтверждения пользователя.",
         {"id": _prop("integer", "id issue")},
         ["id"],
+    ),
+    _tool(
+        "file_download",
+        "Скачать файл из файлов проекта (хранилище MinIO) в workspace воркера — в нужную папку. "
+        "path — путь в файлах проекта (см. list_files инструмента files MCP), dest — путь назначения "
+        "относительно workspace, папки создаются автоматически (например 'reports/отчёт.pdf'). "
+        "По умолчанию файл кладётся в корень workspace под именем из path. Возвращает путь в workspace.",
+        {
+            "path": _prop("string", "путь к файлу в файлах проекта, например shots/отчёт.png"),
+            "dest": _prop("string", "путь назначения относительно workspace (необязательно)"),
+        },
+        ["path"],
     ),
 ]
 

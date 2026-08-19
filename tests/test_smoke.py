@@ -860,6 +860,62 @@ def test_broker_telegram_tools(client, monkeypatch, tmp_path):
     assert r["isError"] and "чат" in r["content"][0]["text"]
 
 
+def test_broker_file_download(client, monkeypatch, tmp_path):
+    import asyncio
+
+    from app import broker_mcp, files_store, session_manager
+
+    class FakeObj:
+        size = 5
+
+        def stream(self, amt=1024 * 1024):
+            yield b"hello"
+            yield b"!"
+
+    monkeypatch.setattr(files_store, "get_object", lambda pid, path: FakeObj())
+
+    ws = tmp_path / "workspaces" / "sess1"
+    ws.mkdir(parents=True)
+    monkeypatch.setattr(session_manager, "host_ws_dir", lambda sid: ws)
+
+    # в корень workspace под именем из path
+    r = asyncio.run(
+        broker_mcp.call_tool("file_download", {"path": "shots/отчёт.txt"}, {"session_id": "sess1", "project_id": 1})
+    )
+    assert not r["isError"], r["content"][0]["text"]
+    import json
+
+    out = json.loads(r["content"][0]["text"])
+    assert out["path"] == "отчёт.txt"
+    assert (ws / "отчёт.txt").read_bytes() == b"hello!"
+
+    # в подпапку
+    r = asyncio.run(
+        broker_mcp.call_tool(
+            "file_download", {"path": "shots/отчёт.txt", "dest": "reports/2026/x.txt"}, {"session_id": "sess1", "project_id": 1}
+        )
+    )
+    assert not r["isError"], r["content"][0]["text"]
+    assert (ws / "reports" / "2026" / "x.txt").read_bytes() == b"hello!"
+
+    # dest с "/" — имя файла из path
+    r = asyncio.run(
+        broker_mcp.call_tool("file_download", {"path": "shots/отчёт.txt", "dest": "reports/"}, {"session_id": "sess1", "project_id": 1})
+    )
+    assert not r["isError"], r["content"][0]["text"]
+    assert (ws / "reports" / "отчёт.txt").read_bytes() == b"hello!"
+
+    # выход за пределы workspace запрещён
+    r = asyncio.run(
+        broker_mcp.call_tool("file_download", {"path": "x", "dest": "../secret.txt"}, {"session_id": "sess1", "project_id": 1})
+    )
+    assert r["isError"] and "пределы workspace" in r["content"][0]["text"]
+
+    # без сессии нельзя
+    r = asyncio.run(broker_mcp.call_tool("file_download", {"path": "x"}, {"project_id": 1}))
+    assert r["isError"] and "сессии воркера" in r["content"][0]["text"]
+
+
 def test_render_workspace_injects_broker_mcp(tmp_path):
     from app.render import render_workspace
 
