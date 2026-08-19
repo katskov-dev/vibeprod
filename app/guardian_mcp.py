@@ -773,7 +773,9 @@ def _workspace_path(args):
         raise ToolError("workspace_path доступен только в сессии воркера (нет X-Vibeprod-Session)")
     from . import session_manager
 
-    root = session_manager.host_ws_dir(sid).resolve()
+    # Внутриконтейнерный путь брокера (в compose — /app/data/...); host_ws_dir —
+    # только для docker-демона (источники bind-mount).
+    root = session_manager.ws_dir(sid).resolve()
     p = (root / str(raw).lstrip("/")).resolve()
     if not str(p).startswith(str(root) + os.sep):
         raise ToolError("workspace_path: выход за пределы workspace запрещён")

@@ -133,6 +133,21 @@ async def h_telegram_send(args, ctx):
     return {"ok": True, "chat_id": chat, "message_id": message_id}
 
 
+def _workspace_file_path(sid, raw, must_exist=False):
+    """Путь к файлу в workspace воркера (видимый брокеру) с проверкой границ.
+
+    Брокер ходит в workspace по внутриконтейнерному пути ws_dir (в compose это
+    /app/data/... — bind-mount данных; host_ws_dir — только для docker-демона).
+    """
+    ws = session_manager.ws_dir(sid).resolve()
+    target = (ws / str(raw).lstrip("/")).resolve()
+    if not (target == ws or str(target).startswith(str(ws) + os.sep)):
+        raise ToolError("путь выходит за пределы workspace")
+    if must_exist and not target.is_file():
+        raise ToolError(f"файл не найден в workspace: {raw}")
+    return ws, target
+
+
 async def h_telegram_send_file(args, ctx):
     """Файл из workspace воркера (path) или из текста (content)."""
     path = (args.get("path") or "").strip()
@@ -141,12 +156,7 @@ async def h_telegram_send_file(args, ctx):
         sid = ctx.get("session_id")
         if not sid:
             raise ToolError("path доступен только из сессии воркера")
-        ws = session_manager.host_ws_dir(sid).resolve()
-        target = (ws / path).resolve()
-        if not (target == ws or str(target).startswith(str(ws) + os.sep)):
-            raise ToolError("path выходит за пределы workspace")
-        if not target.is_file():
-            raise ToolError(f"файл не найден в workspace: {path}")
+        _, target = _workspace_file_path(sid, path, must_exist=True)
         if target.stat().st_size > channel.FILE_LIMIT:
             raise ToolError(f"файл больше {channel.FILE_LIMIT // (1024 * 1024)} МБ — Telegram не примет")
         content = target.read_bytes()
@@ -268,11 +278,39 @@ def h_issue_delete(args, ctx):
     return {"ok": True}
 
 
+def _dest_relative(dest, path):
+    """dest → путь относительно workspace воркера.
+
+    Агент передаёт абсолютный путь внутри воркера (/workspace/...): приводим
+    к относительному. Относительный — как есть (папка с "/" на конце —
+    дополняется именем файла из path).
+    """
+    dest = str(dest or "").strip()
+    if dest.startswith("/"):
+        parts = [x for x in PurePosixPath(dest).parts if x not in ("", "/")]
+        if not parts or parts[0] != "workspace":
+            raise ToolError(
+                "dest: абсолютный путь должен быть внутри /workspace воркера "
+                "(например /workspace/reports/отчёт.pdf) — брокер пишет только в workspace"
+            )
+        parts = parts[1:]
+        if dest.endswith("/"):
+            parts.append(PurePosixPath(path).name)
+        if not parts:
+            raise ToolError("dest указывает на корень /workspace — укажите путь к файлу")
+        return str(PurePosixPath(*parts))
+    if not dest:
+        return PurePosixPath(path).name
+    if dest.endswith("/"):
+        dest += PurePosixPath(path).name
+    return dest
+
+
 def h_file_download(args, ctx):
     """Скачивает файл из файлов проекта (MinIO) в workspace воркера.
 
-    Исполняется на брокере: только он видит workspace сессии на хосте
-    (files MCP живёт в контейнере playwright и до воркера не дотягивается).
+    Исполняется на брокере: только он видит workspace сессии (files MCP живёт
+    в контейнере playwright и до воркера не дотягивается).
     """
     path = str(args.get("path") or "").strip().lstrip("/")
     if not path or ".." in PurePosixPath(path).parts:
@@ -283,15 +321,8 @@ def h_file_download(args, ctx):
     sid = ctx.get("session_id")
     if not sid:
         raise ToolError("скачивание доступно только из сессии воркера")
-    dest = str(args.get("dest") or "").strip()
-    if dest.endswith("/"):
-        dest += PurePosixPath(path).name
-    if not dest:
-        dest = PurePosixPath(path).name
-    ws = session_manager.host_ws_dir(sid).resolve()
-    target = (ws / dest).resolve()
-    if not (target == ws or str(target).startswith(str(ws) + os.sep)):
-        raise ToolError("dest выходит за пределы workspace")
+    rel = _dest_relative(args.get("dest"), path)
+    ws, target = _workspace_file_path(sid, rel)
     try:
         obj = files_store.get_object(pid, path)
     except Exception as exc:
@@ -404,12 +435,14 @@ BROKER_TOOLS = [
     _tool(
         "file_download",
         "Скачать файл из файлов проекта (хранилище MinIO) в workspace воркера — в нужную папку. "
-        "path — путь в файлах проекта (см. list_files инструмента files MCP), dest — путь назначения "
-        "относительно workspace, папки создаются автоматически (например 'reports/отчёт.pdf'). "
-        "По умолчанию файл кладётся в корень workspace под именем из path. Возвращает путь в workspace.",
+        "path — относительный путь к файлу в файлах проекта (см. list_files инструмента files MCP). "
+        "dest — АБСОЛЮТНЫЙ путь назначения в workspace воркера, например /workspace/reports/отчёт.pdf "
+        "(папки создаются автоматически; допустим и относительный путь от корня workspace, "
+        "dest с '/' на конце означает «в эту папку под именем из path»). "
+        "По умолчанию файл кладётся в корень workspace под именем из path. Возвращает относительный путь в workspace.",
         {
-            "path": _prop("string", "путь к файлу в файлах проекта, например shots/отчёт.png"),
-            "dest": _prop("string", "путь назначения относительно workspace (необязательно)"),
+            "path": _prop("string", "относительный путь к файлу в файлах проекта, например shots/отчёт.png"),
+            "dest": _prop("string", "абсолютный путь назначения в workspace воркера (/workspace/...), необязательно"),
         },
         ["path"],
     ),

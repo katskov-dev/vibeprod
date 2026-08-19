@@ -181,7 +181,7 @@ def test_guardian_file_tools(monkeypatch, tmp_path):
     (ws / "index.html").write_text("<html>calc</html>", encoding="utf-8")
     from app import session_manager
 
-    monkeypatch.setattr(session_manager, "host_ws_dir", lambda sid: ws)
+    monkeypatch.setattr(session_manager, "ws_dir", lambda sid: ws)
     ctx = {"session_id": "sess1", "project_id": 1}
 
     async def run():
@@ -822,7 +822,7 @@ def test_broker_telegram_tools(client, monkeypatch, tmp_path):
     ws = tmp_path / "workspaces" / "sess1"
     ws.mkdir(parents=True)
     (ws / "report.html").write_text("<h1>отчёт</h1>", encoding="utf-8")
-    monkeypatch.setattr(session_manager, "host_ws_dir", lambda sid: ws)
+    monkeypatch.setattr(session_manager, "ws_dir", lambda sid: ws)
 
     # без конфига канала — понятная ошибка
     r = asyncio.run(broker_mcp.call_tool("telegram_send", {"text": "привет"}, {"project_id": 1}))
@@ -877,7 +877,7 @@ def test_broker_file_download(client, monkeypatch, tmp_path):
 
     ws = tmp_path / "workspaces" / "sess1"
     ws.mkdir(parents=True)
-    monkeypatch.setattr(session_manager, "host_ws_dir", lambda sid: ws)
+    monkeypatch.setattr(session_manager, "ws_dir", lambda sid: ws)
 
     # в корень workspace под именем из path
     r = asyncio.run(
@@ -890,7 +890,7 @@ def test_broker_file_download(client, monkeypatch, tmp_path):
     assert out["path"] == "отчёт.txt"
     assert (ws / "отчёт.txt").read_bytes() == b"hello!"
 
-    # в подпапку
+    # в подпапку (относительный dest)
     r = asyncio.run(
         broker_mcp.call_tool(
             "file_download", {"path": "shots/отчёт.txt", "dest": "reports/2026/x.txt"}, {"session_id": "sess1", "project_id": 1}
@@ -899,12 +899,40 @@ def test_broker_file_download(client, monkeypatch, tmp_path):
     assert not r["isError"], r["content"][0]["text"]
     assert (ws / "reports" / "2026" / "x.txt").read_bytes() == b"hello!"
 
+    # абсолютный dest внутри /workspace
+    r = asyncio.run(
+        broker_mcp.call_tool(
+            "file_download", {"path": "shots/отчёт.txt", "dest": "/workspace/ssh/deploy_key.pub"},
+            {"session_id": "sess1", "project_id": 1},
+        )
+    )
+    assert not r["isError"], r["content"][0]["text"]
+    assert (ws / "ssh" / "deploy_key.pub").read_bytes() == b"hello!"
+
+    # абсолютный dest в папку с "/" — имя файла из path
+    r = asyncio.run(
+        broker_mcp.call_tool(
+            "file_download", {"path": "shots/отчёт.txt", "dest": "/workspace/reports/"},
+            {"session_id": "sess1", "project_id": 1},
+        )
+    )
+    assert not r["isError"], r["content"][0]["text"]
+    assert (ws / "reports" / "отчёт.txt").read_bytes() == b"hello!"
+
     # dest с "/" — имя файла из path
     r = asyncio.run(
         broker_mcp.call_tool("file_download", {"path": "shots/отчёт.txt", "dest": "reports/"}, {"session_id": "sess1", "project_id": 1})
     )
     assert not r["isError"], r["content"][0]["text"]
     assert (ws / "reports" / "отчёт.txt").read_bytes() == b"hello!"
+
+    # абсолютный dest вне /workspace запрещён
+    r = asyncio.run(
+        broker_mcp.call_tool(
+            "file_download", {"path": "x", "dest": "/tmp/secret.txt"}, {"session_id": "sess1", "project_id": 1}
+        )
+    )
+    assert r["isError"] and "/workspace" in r["content"][0]["text"]
 
     # выход за пределы workspace запрещён
     r = asyncio.run(
