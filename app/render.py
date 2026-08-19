@@ -15,6 +15,10 @@ def _parse_perm(raw):
     opencode 1.0.196+ требует объект {edit, bash, webfetch}, старые значения в
     БД/UI — строка "allow"/"ask"/"deny" (иначе ConfigInvalidError, воркер
     отвечает 500 на /config/providers и сессия не стартует).
+
+    Воркер неинтерактивный: разрешения, которые по умолчанию «ask»
+    (external_directory, чтение *.env), инжектим как allow — иначе opencode
+    ждёт ответа, которого некому дать, и сессия зависает.
     """
     try:
         perm = json.loads(raw or '"allow"')
@@ -23,8 +27,10 @@ def _parse_perm(raw):
     if isinstance(perm, str):
         perm = {"edit": perm, "bash": perm}
     if isinstance(perm, dict):
+        perm.setdefault("external_directory", "allow")
+        perm.setdefault("read", "allow")
         return perm
-    return {"edit": "allow", "bash": "allow"}
+    return {"edit": "allow", "bash": "allow", "external_directory": "allow", "read": "allow"}
 
 
 def _write_agent_file(wdir, agent):
@@ -114,8 +120,10 @@ def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None,
         "$schema": "https://opencode.ai/config.json",
         "model": default["model"] or DEFAULT_MODEL_FALLBACK,
         "default_agent": default["name"],
-        # opencode 1.0.196+ требует объект (строка "allow" → ConfigInvalidError)
-        "permission": {"edit": "allow", "bash": "allow"},
+        # opencode 1.0.196+ требует объект (строка "allow" → ConfigInvalidError).
+        # external_directory/read по умолчанию «ask» — в неинтерактивном воркере
+        # ответить некому, сессия зависает: разрешаем сразу.
+        "permission": {"edit": "allow", "bash": "allow", "external_directory": "allow", "read": "allow"},
     }
     synthetic = [m for m in (guardian_mcp, broker_mcp) if m]
     mcp = _build_mcp(list(mcp_rows) + synthetic)

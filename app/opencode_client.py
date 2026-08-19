@@ -112,12 +112,25 @@ class OpencodeClient:
         r.raise_for_status()
         return True
 
-    def respond_permission(self, sid, permission_id, response="allow"):
+    def respond_permission(self, sid, permission_id, response="always"):
+        """Отвечает на запрос разрешения воркера.
+
+        Форк opencode (anomalyco) принимает «once»/«always»/«reject»:
+        сначала пробуем новый маршрут /api/session/{sid}/permission/{id}/reply
+        (body {reply}), при 404 — старый /session/{sid}/permissions/{id}
+        (body {response}), как в старых версиях opencode.
+        """
         r = self._req(
             "POST",
-            f"/session/{sid}/permissions/{permission_id}",
-            json={"response": response},
+            f"/api/session/{sid}/permission/{permission_id}/reply",
+            json={"reply": response, "message": ""},
         )
+        if r.status_code == 404:
+            r = self._req(
+                "POST",
+                f"/session/{sid}/permissions/{permission_id}",
+                json={"response": response},
+            )
         return r.status_code < 400
 
     def questions(self):

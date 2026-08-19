@@ -877,3 +877,60 @@ def test_render_workspace_injects_broker_mcp(tmp_path):
     assert "vibeprod" in cfg["mcp"]
     assert cfg["mcp"]["vibeprod"]["url"] == "http://h/broker/mcp"
     assert cfg["mcp"]["vibeprod"]["headers"]["Authorization"] == "Bearer x"
+
+
+def test_render_perm_allows_headless(tmp_path):
+    """external_directory/read по умолчанию «ask» — в воркере ответить некому.
+
+    В opencode.json и во frontmatter агента они должны быть allow, иначе
+    opencode зависает в ожидании ответа на разрешение.
+    """
+    from app.render import render_workspace
+
+    wdir = tmp_path / "ws"
+    render_workspace(
+        wdir,
+        [
+            {
+                "name": "general",
+                "mode": "primary",
+                "model": "m/m",
+                "is_default": 1,
+                "permission": '{"edit": "allow", "bash": "allow"}',
+            },
+            {"name": "guardian", "mode": "primary", "model": "m/m", "permission": '"allow"'},
+        ],
+        [],
+        [],
+    )
+    import json
+
+    cfg = json.loads((wdir / "opencode.json").read_text(encoding="utf-8"))
+    assert cfg["permission"]["external_directory"] == "allow"
+    assert cfg["permission"]["read"] == "allow"
+
+    text = (wdir / ".opencode" / "agent" / "general.md").read_text(encoding="utf-8")
+    assert "external_directory: allow" in text
+    assert "read: allow" in text
+
+
+def test_streamer_permission_helpers():
+    from app.streamer import _permission_id, _permission_name, _session_of
+
+    # форк opencode: permission.asked, properties.id
+    props = {"id": "per_1", "sessionID": "s1", "permission": "external_directory", "patterns": ["/etc/*"]}
+    assert _session_of(props) == "s1"
+    assert _permission_id(props) == "per_1"
+    assert _permission_name(props) == "external_directory"
+
+    # v2-событие без bridge: sessionID вложен в data
+    assert _session_of({"data": {"sessionID": "s2"}}) == "s2"
+
+    # сырое v2-событие: requestID в data.id, имя — data.action
+    assert _permission_id({"data": {"id": "per_v2"}}) == "per_v2"
+    assert _permission_name({"data": {"action": "external_directory"}}) == "external_directory"
+
+    # старый opencode: permissionID / permission.id
+    assert _permission_id({"permissionID": "p9"}) == "p9"
+    assert _permission_id({"permission": {"id": "p8"}}) == "p8"
+    assert _permission_id({}) is None

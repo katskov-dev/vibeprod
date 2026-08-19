@@ -39,13 +39,50 @@ def _session_of(props):
     sid = props.get("sessionID")
     if sid:
         return sid
-    for key in ("info", "part", "todo", "message", "permission", "file"):
+    for key in ("info", "part", "todo", "message", "permission", "file", "request", "data"):
         obj = props.get(key)
         if isinstance(obj, dict):
             sid = obj.get("sessionID")
             if sid:
                 return sid
     return None
+
+
+def _permission_id(props):
+    """id запроса разрешения из свойств события permission.*.
+
+    Форк opencode шлёт «permission.asked» с properties.id; старый opencode —
+    «permission.ask» с permissionID или permission.id; сырое v2-событие (без
+    bridge) несёт requestID в data.id.
+    """
+    if not isinstance(props, dict):
+        return None
+    data = props.get("data")
+    if isinstance(data, dict):
+        pid = data.get("id") or data.get("requestID")
+        if pid:
+            return str(pid)
+    for key in ("requestID", "permissionID", "id"):
+        pid = props.get(key)
+        if pid:
+            return str(pid)
+    perm = props.get("permission")
+    if isinstance(perm, dict):
+        pid = perm.get("id") or perm.get("requestID")
+        if pid:
+            return str(pid)
+    return None
+
+
+def _permission_name(props):
+    props = props or {}
+    data = props.get("data")
+    if isinstance(data, dict) and data.get("action"):
+        return str(data["action"])
+    perm = props.get("permission")
+    if isinstance(perm, dict):
+        perm = perm.get("permission") or perm.get("action")
+    return str(perm or "")
 
 
 def _result_error(messages):
@@ -169,12 +206,23 @@ class StreamManager:
                 "INSERT INTO events(session_id, type, payload) VALUES(?,?,?)",
                 (sid, etype, json.dumps(props, ensure_ascii=False)),
             )
-        if etype == "permission.ask":
-            pid = props.get("permissionID") or (props.get("permission") or {}).get("id")
+        if etype in ("permission.ask", "permission.asked", "permission.v2.asked"):
+            # Воркер неинтерактивный: отвечать на запросы разрешений некому —
+            # разрешаем сами, иначе opencode ждёт ответа бесконечно (зависание).
+            # doom_loop — «once»: продолжаем, но каждый следующий виток
+            # спрашивается заново, чтобы бесконечный цикл не разгонялся молча.
+            pid = _permission_id(props)
             if pid:
+                response = "once" if _permission_name(props) == "doom_loop" else "always"
                 client = OpencodeClient(base_url, token)
-                client.respond_permission(oc_sid, pid, "allow")
-                client.close()
+                try:
+                    ok = client.respond_permission(oc_sid, pid, response)
+                    if not ok:
+                        log.warning("permission %s: respond failed (%s)", pid, response)
+                except Exception as exc:
+                    log.warning("permission %s: respond error: %s", pid, exc)
+                finally:
+                    client.close()
         if etype == "question.asked":
             # неинтерактивные запуски (вебхуки, расписания) некому отвечать —
             # отклоняем вопрос сразу, чтобы сессия не зависала
