@@ -296,7 +296,11 @@ def h_file_download(args, ctx):
         obj = files_store.get_object(pid, path)
     except Exception as exc:
         raise ToolError(f"не удалось прочитать {path}: {exc}")
-    if obj.size is not None and obj.size > DOWNLOAD_LIMIT:
+    try:
+        size_hdr = int(obj.headers.get("Content-Length") or 0)
+    except (ValueError, TypeError):
+        size_hdr = 0
+    if size_hdr > DOWNLOAD_LIMIT:
         raise ToolError(f"файл больше {DOWNLOAD_LIMIT // (1024 * 1024)} МБ — не скачиваем")
     target.parent.mkdir(parents=True, exist_ok=True)
     written = 0

@@ -866,11 +866,12 @@ def test_broker_file_download(client, monkeypatch, tmp_path):
     from app import broker_mcp, files_store, session_manager
 
     class FakeObj:
-        size = 5
+        def __init__(self, data=b"hello!"):
+            self.headers = {"Content-Length": str(len(data))}
+            self._data = data
 
         def stream(self, amt=1024 * 1024):
-            yield b"hello"
-            yield b"!"
+            yield self._data
 
     monkeypatch.setattr(files_store, "get_object", lambda pid, path: FakeObj())
 
