@@ -6,7 +6,6 @@
 Эндпоинты ssh-MCP контейнера (за токеном проекта X-Vibeprod-Token, как
 /api/files/content): конфиг (серверы с ключами + команды) и запись логов.
 """
-import asyncio
 import base64
 import hashlib
 import re
@@ -20,13 +19,12 @@ from .. import db
 from .. import files_store
 from ..ssh_config import (
     MAX_OUTPUT,
+    SshConnectError,
     SshError,
     arg_regexes,
-    key_fingerprint,
-    known_hosts_line,
     known_hosts_list,
-    known_hosts_obj,
     render_command,
+    test_server_connection,
 )
 
 router = APIRouter(prefix="/api")
@@ -138,7 +136,7 @@ def create_server(payload: dict):
     if auth_type == "key":
         try:
             asyncssh.import_private_key(private_key)
-        except asyncssh.Error as exc:
+        except (asyncssh.Error, ValueError) as exc:
             raise HTTPException(400, f"не удалось прочитать приватный ключ: {exc}")
     sid = db.execute(
         "INSERT INTO ssh_servers(project_id, name, host, port, username, auth_type, private_key, password) "
@@ -155,7 +153,7 @@ def update_server(sid: int, payload: dict):
     if auth_type == "key" and payload.get("private_key"):
         try:
             asyncssh.import_private_key(private_key)
-        except asyncssh.Error as exc:
+        except (asyncssh.Error, ValueError) as exc:
             raise HTTPException(400, f"не удалось прочитать приватный ключ: {exc}")
     if (host, port) != (row["host"], row["port"]):
         # ключ хоста привязан к адресу — при смене адреса проверяем заново
@@ -185,51 +183,10 @@ async def test_server(sid: int, payload: Optional[dict] = None):
     """
     row = _server_row(sid)
     replace = bool((payload or {}).get("replace_host_key"))
-    if not row["private_key"] and not row["password"]:
-        raise HTTPException(400, "не заданы учётные данные (ключ или пароль)")
-    known = None if replace or not row["known_hosts"] else known_hosts_obj(row["known_hosts"])
-    kwargs = {
-        "host": row["host"],
-        "port": int(row["port"] or 22),
-        "username": row["username"],
-        "connect_timeout": 20,
-        "known_hosts": known,
-    }
-    if row["auth_type"] == "password":
-        kwargs["password"] = row["password"]
-    else:
-        try:
-            kwargs["client_keys"] = [asyncssh.import_private_key(row["private_key"])]
-        except asyncssh.Error as exc:
-            raise HTTPException(400, f"не удалось прочитать приватный ключ: {exc}")
     try:
-        conn = await asyncssh.connect(**kwargs)
-    except asyncssh.HostKeyMismatch:
-        raise HTTPException(409, "ключ хоста изменился! Возможно MITM. Подтвердите замену ключа вручную.")
-    except asyncssh.PermissionDenied:
-        db.execute("UPDATE ssh_servers SET last_error=? WHERE id=?", ("доступ запрещён (проверьте ключ/пароль)", sid))
-        raise HTTPException(502, "доступ запрещён (проверьте ключ/пароль)")
-    except asyncssh.Error as exc:
-        msg = f"SSH: {exc}"
-        db.execute("UPDATE ssh_servers SET last_error=? WHERE id=?", (msg[:500], sid))
-        raise HTTPException(502, msg)
-    except (OSError, TimeoutError, asyncio.TimeoutError) as exc:
-        msg = f"соединение: {exc}"
-        db.execute("UPDATE ssh_servers SET last_error=? WHERE id=?", (msg[:500], sid))
-        raise HTTPException(502, msg)
-    try:
-        key = conn.get_server_host_key()
-        saved = False
-        if not row["known_hosts"] or replace:
-            db.execute(
-                "UPDATE ssh_servers SET known_hosts=?, last_error=NULL WHERE id=?",
-                (known_hosts_line(row["host"], row["port"], key), sid),
-            )
-            saved = True
-        fingerprint = key_fingerprint(key)
-    finally:
-        conn.close()
-    return {"ok": True, "fingerprint": fingerprint, "host_key_saved": saved}
+        return await test_server_connection(row, replace)
+    except SshConnectError as exc:
+        raise HTTPException(exc.http_status, str(exc))
 
 
 # ---------- команды ----------

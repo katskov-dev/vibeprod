@@ -310,6 +310,188 @@ def test_unknown_session_is_404(client):
     assert client.get("/api/sessions/does-not-exist").status_code == 404
 
 
+def test_guardian_ssh_tools(client):
+    import asyncio
+    import json
+
+    import asyncssh
+
+    from app import db, guardian_mcp
+
+    pid2 = db.execute("INSERT INTO projects(name, file_token) VALUES('Второй', 'tok2')")
+    db.execute(
+        "INSERT INTO ssh_servers(project_id, name, host, port, username, auth_type, password) "
+        "VALUES(?, 'other-srv', 'other.example.com', 22, 'root', 'password', 'hunter2')",
+        (pid2,),
+    )
+    other_srv = db.query_one("SELECT id FROM ssh_servers WHERE project_id=?", (pid2,))["id"]
+    db.execute(
+        "INSERT INTO ssh_commands(server_id, name, command) VALUES(?, 'other-cmd', 'echo {x}')", (other_srv,)
+    )
+    other_cmd = db.query_one("SELECT id FROM ssh_commands WHERE server_id=?", (other_srv,))["id"]
+    db.execute(
+        "INSERT INTO ssh_runs(project_id, server_id, command_name, output) VALUES(?, ?, 'other-cmd', 'x')",
+        (pid2, other_srv),
+    )
+
+    ctx = {"session_id": "sess1", "project_id": 1}
+
+    def call(name, args):
+        return asyncio.run(guardian_mcp.call_tool(name, args, ctx))
+
+    def txt(r):
+        return r["content"][0]["text"]
+
+    def deny(name, args):
+        r = call(name, args)
+        assert r["isError"] and "друг" in txt(r), (name, txt(r))
+
+    # данные чужого проекта недоступны
+    deny("ssh_server_list", {"project_id": pid2})
+    deny("ssh_server_update", {"id": other_srv, "host": "x.example.com"})
+    deny("ssh_server_delete", {"id": other_srv})
+    deny("ssh_server_test", {"id": other_srv})
+    deny("ssh_command_list", {"server_id": other_srv})
+    deny("ssh_command_update", {"id": other_cmd, "command": "echo {y}"})
+    deny("ssh_command_delete", {"id": other_cmd})
+    deny("ssh_run_list", {"server_id": other_srv})
+    deny("ssh_server_create", {"name": "x", "host": "h", "username": "u", "password": "p",
+                               "auth_type": "password", "project_id": pid2})
+    runs = call("ssh_run_list", {})
+    assert not runs["isError"] and "other-cmd" not in txt(runs)
+
+    # создание сервера с паролем
+    r = call("ssh_server_create", {"name": "prod", "host": "example.com", "username": "deploy",
+                                   "auth_type": "password", "password": "s3cret"})
+    assert not r["isError"], txt(r)
+    srv = json.loads(txt(r))
+    assert srv["has_password"] and not srv["has_key"] and "s3cret" not in txt(r)
+    sid = srv["id"]
+
+    assert [s["name"] for s in json.loads(txt(call("ssh_server_list", {})))] == ["prod"]
+
+    # создание сервера с ключом + валидация ключа
+    key = asyncssh.generate_private_key("ssh-ed25519")
+    pem = key.export_private_key("openssh").decode()
+    r = call("ssh_server_create", {"name": "dev", "host": "dev.example.com", "username": "deploy",
+                                   "private_key": pem})
+    assert not r["isError"], txt(r)
+    r = call("ssh_server_create", {"name": "bad", "host": "h", "username": "u", "private_key": "not a key"})
+    assert r["isError"] and "ключ" in txt(r)
+
+    # частичное обновление сервера (enabled), ключ не затирается
+    r = call("ssh_server_update", {"id": sid, "enabled": 0})
+    upd = json.loads(txt(r))
+    assert not r["isError"] and upd["enabled"] == 0 and upd["name"] == "prod" and upd["has_password"]
+
+    # команды белого списка
+    r = call("ssh_command_create", {
+        "server_id": sid, "name": "logs",
+        "command": "journalctl -u {service} -n {lines} --no-pager",
+        "arg_regex": '{"service": "^[a-z0-9-]{1,40}$", "lines": "^[1-9][0-9]{0,3}$"}',
+    })
+    assert not r["isError"], txt(r)
+    cid = json.loads(txt(r))["id"]
+    r = call("ssh_command_create", {"server_id": sid, "name": "logs", "command": "ls"})
+    assert r["isError"] and "уже есть" in txt(r)
+    assert [c["name"] for c in json.loads(txt(call("ssh_command_list", {"server_id": sid})))] == ["logs"]
+
+    r = call("ssh_command_update", {"id": cid, "timeout": 120, "description": "логи сервиса"})
+    upd = json.loads(txt(r))
+    assert not r["isError"] and upd["timeout"] == 120 and upd["description"] == "логи сервиса"
+    assert upd["command"].startswith("journalctl")
+
+    # проверка шаблона
+    r = call("ssh_command_check", {"command": "echo {a}", "arg_regex": '{"a": "^[^\\n]{1,10}$"}',
+                                   "params": {"a": "x y"}})
+    assert not r["isError"] and json.loads(txt(r))["rendered"] == "echo 'x y'"
+    r = call("ssh_command_check", {"command": "echo {a}", "params": {"a": "x; rm -rf /"}})
+    assert r["isError"] and "валидацию" in txt(r)
+
+    # удаление: каскадно уходит команда
+    assert not call("ssh_command_delete", {"id": cid})["isError"]
+    assert call("ssh_command_delete", {"id": cid})["isError"]
+    assert not call("ssh_server_delete", {"id": sid})["isError"]
+    assert call("ssh_server_list", {})
+
+
+def test_guardian_mcp_lists_ssh_tools(client):
+    from app.guardian_mcp import TOOLS
+
+    names = {t["name"] for t in TOOLS}
+    assert {
+        "ssh_server_list", "ssh_server_create", "ssh_server_update", "ssh_server_delete",
+        "ssh_server_test", "ssh_command_list", "ssh_command_create", "ssh_command_update",
+        "ssh_command_delete", "ssh_command_check", "ssh_run_list",
+    } <= names
+
+
+def test_ssh_test_connection_saves_host_key(client):
+    import asyncio
+    import socket
+
+    import asyncssh
+    import pytest
+
+    from app import db
+    from app.ssh_config import SshConnectError, known_hosts_line, test_server_connection
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    client_key = asyncssh.generate_private_key("ssh-ed25519")
+    server_key = asyncssh.generate_private_key("ssh-ed25519")
+    pem = client_key.export_private_key("openssh").decode()
+
+    class NoAuth(asyncssh.SSHServer):
+        def begin_auth(self, username):
+            return False
+
+        def session_requested(self):
+            return True
+
+    async def run():
+        listener = await asyncssh.listen("127.0.0.1", port, server_factory=NoAuth, server_host_keys=[server_key])
+        try:
+            pid = db.query_one("SELECT id FROM projects ORDER BY id LIMIT 1")["id"]
+            sid = db.execute(
+                "INSERT INTO ssh_servers(project_id, name, host, port, username, auth_type, private_key) "
+                "VALUES(?, 't', '127.0.0.1', ?, 'tester', 'key', ?)",
+                (pid, port, pem),
+            )
+            result = await test_server_connection(db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,)))
+            assert result["ok"] and result["host_key_saved"]
+            assert result["fingerprint"].startswith("SHA256:")
+            saved = db.query_one("SELECT known_hosts, last_error FROM ssh_servers WHERE id=?", (sid,))
+            assert saved["known_hosts"] and saved["last_error"] is None
+
+            # повторная проверка: ключ уже сохранён, пересохранения нет
+            result = await test_server_connection(db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,)))
+            assert result["ok"] and not result["host_key_saved"]
+
+            # чужой ключ хоста — несоответствие (409)
+            other = asyncssh.generate_private_key("ssh-ed25519")
+            db.execute(
+                "UPDATE ssh_servers SET known_hosts=? WHERE id=?", (known_hosts_line("127.0.0.1", port, other), sid)
+            )
+            with pytest.raises(SshConnectError) as excinfo:
+                await test_server_connection(db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,)))
+            assert excinfo.value.http_status == 409
+
+            # replace_host_key пересохраняет ключ
+            result = await test_server_connection(
+                db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,)), replace_host_key=True
+            )
+            assert result["ok"] and result["host_key_saved"]
+        finally:
+            listener.close()
+            await listener.wait_closed()
+
+    asyncio.run(run())
+
+
 @pytest.fixture()
 def auth_client(tmp_path, monkeypatch):
     monkeypatch.setenv("VIBEPROD_DATA_DIR", str(tmp_path))

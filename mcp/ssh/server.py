@@ -298,7 +298,7 @@ async def h_ssh_run(args, ctx):
         status = "ok" if code == 0 else "error"
     except ToolError:
         raise
-    except asyncssh.HostKeyMismatch:
+    except asyncssh.HostKeyNotVerifiable:
         raise ToolError(f"ключ хоста {server['host']} изменился! Возможен MITM — проверьте сервер в админке.")
     except asyncssh.Error as exc:
         raise ToolError(f"SSH ({server['host']}): {exc}")

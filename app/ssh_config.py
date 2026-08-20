@@ -121,3 +121,73 @@ def agent_config(project_id):
         (int(project_id),),
     )
     return {"servers": [dict(s) for s in servers], "commands": [dict(c) for c in commands]}
+
+
+class SshConnectError(SshError):
+    """Ошибка проверки подключения к серверу (с HTTP-кодом для API)."""
+
+    def __init__(self, message, http_status=502):
+        super().__init__(message)
+        self.http_status = http_status
+
+
+async def test_server_connection(row, replace_host_key=False):
+    """Проверка подключения к серверу с TOFU-сохранением ключа хоста.
+
+    Обновляет last_error/known_hosts в БД. Ошибки — SshConnectError:
+    400 нет учётных данных, 409 изменился ключ хоста (возможен MITM),
+    502 остальные ошибки соединения/авторизации.
+
+    Возвращает {"ok", "fingerprint", "host_key_saved"}.
+    """
+    import asyncio
+
+    import asyncssh
+
+    from . import db
+
+    if not row.get("private_key") and not row.get("password"):
+        raise SshConnectError("не заданы учётные данные (ключ или пароль)", 400)
+    known = None if replace_host_key or not row.get("known_hosts") else known_hosts_obj(row["known_hosts"])
+    kwargs = {
+        "host": row["host"],
+        "port": int(row.get("port") or 22),
+        "username": row["username"],
+        "connect_timeout": 20,
+        "known_hosts": known,
+    }
+    if row.get("auth_type") == "password":
+        kwargs["password"] = row["password"]
+    else:
+        try:
+            kwargs["client_keys"] = [asyncssh.import_private_key(row["private_key"])]
+        except (asyncssh.Error, ValueError) as exc:
+            raise SshConnectError(f"не удалось прочитать приватный ключ: {exc}", 400)
+    try:
+        conn = await asyncssh.connect(**kwargs)
+    except asyncssh.HostKeyNotVerifiable:
+        raise SshConnectError("ключ хоста изменился! Возможно MITM. Подтвердите замену ключа вручную.", 409)
+    except asyncssh.PermissionDenied:
+        db.execute("UPDATE ssh_servers SET last_error=? WHERE id=?", ("доступ запрещён (проверьте ключ/пароль)", row["id"]))
+        raise SshConnectError("доступ запрещён (проверьте ключ/пароль)")
+    except asyncssh.Error as exc:
+        msg = f"SSH: {exc}"
+        db.execute("UPDATE ssh_servers SET last_error=? WHERE id=?", (msg[:500], row["id"]))
+        raise SshConnectError(msg)
+    except (OSError, TimeoutError, asyncio.TimeoutError) as exc:
+        msg = f"соединение: {exc}"
+        db.execute("UPDATE ssh_servers SET last_error=? WHERE id=?", (msg[:500], row["id"]))
+        raise SshConnectError(msg)
+    try:
+        key = conn.get_server_host_key()
+        saved = False
+        if not row.get("known_hosts") or replace_host_key:
+            db.execute(
+                "UPDATE ssh_servers SET known_hosts=?, last_error=NULL WHERE id=?",
+                (known_hosts_line(row["host"], row["port"], key), row["id"]),
+            )
+            saved = True
+        fingerprint = key_fingerprint(key)
+    finally:
+        conn.close()
+    return {"ok": True, "fingerprint": fingerprint, "host_key_saved": saved}

@@ -20,8 +20,10 @@ from . import db
 from . import files_store
 from . import scheduler
 from .api.agents import NAME_RE, _check_project, _validate_agent
+from .api.ssh import _cmd_payload, _server_out, _server_payload
 from .api.webhooks import _validate as _validate_webhook
 from .provider_check import check_provider, env_var_for
+from .ssh_config import SshConnectError, SshError, render_command, test_server_connection
 
 
 class ToolError(Exception):
@@ -745,6 +747,181 @@ async def h_schedule_run_now(args):
     return {"ok": True}
 
 
+# ---------- SSH: серверы и команды ----------
+
+def _ssh_project(args):
+    """Свой проект для SSH-сущностей (как и все guardian-инструменты)."""
+    pid = _scoped_project(args)
+    if not db.query_one("SELECT id FROM projects WHERE id=?", (pid,)):
+        raise ToolError(f"проект {pid} не найден")
+    return pid
+
+
+def _ssh_server_row(sid):
+    row = db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,))
+    if not row or (row.get("project_id") is not None and int(row["project_id"]) != _own_project()):
+        raise ToolError("сервер принадлежит другому проекту или не найден")
+    return row
+
+
+def _ssh_command_row(cid):
+    row = db.query_one("SELECT * FROM ssh_commands WHERE id=?", (cid,))
+    if not row:
+        raise ToolError(f"команда {cid} не найдена")
+    _ssh_server_row(row["server_id"])
+    return row
+
+
+def h_ssh_server_list(args):
+    own = _own_project()
+    if args.get("project_id") is not None and _int(args.get("project_id"), "project_id") != own:
+        raise ToolError("нет доступа к данным другого проекта")
+    return [
+        _server_out(r)
+        for r in db.query("SELECT * FROM ssh_servers WHERE project_id=? ORDER BY id", (own,))
+    ]
+
+
+def h_ssh_server_create(args):
+    pid = _ssh_project(args)
+    name, host, port, username, auth_type, private_key, password = _server_payload(args)
+    if auth_type == "key":
+        try:
+            import asyncssh
+
+            asyncssh.import_private_key(private_key)
+        except (asyncssh.Error, ValueError) as exc:
+            raise ToolError(f"не удалось прочитать приватный ключ: {exc}")
+    sid = db.execute(
+        "INSERT INTO ssh_servers(project_id, name, host, port, username, auth_type, private_key, password) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (pid, name, host, port, username, auth_type, private_key, password),
+    )
+    return _server_out(db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,)))
+
+
+def h_ssh_server_update(args):
+    sid = _int(args.get("id"), "id")
+    row = _ssh_server_row(sid)
+    merged = {**dict(row), **{k: v for k, v in args.items() if v is not None}}
+    name, host, port, username, auth_type, private_key, password = _server_payload(merged, existing=row)
+    if auth_type == "key" and args.get("private_key"):
+        try:
+            import asyncssh
+
+            asyncssh.import_private_key(private_key)
+        except (asyncssh.Error, ValueError) as exc:
+            raise ToolError(f"не удалось прочитать приватный ключ: {exc}")
+    known_hosts = "" if (host, port) != (row["host"], row["port"]) else row["known_hosts"]
+    db.execute(
+        "UPDATE ssh_servers SET name=?, host=?, port=?, username=?, auth_type=?, private_key=?, password=?, "
+        "known_hosts=?, enabled=?, last_error=NULL WHERE id=?",
+        (name, host, port, username, auth_type, private_key, password, known_hosts,
+         1 if args.get("enabled", 1) else 0, sid),
+    )
+    return _server_out(db.query_one("SELECT * FROM ssh_servers WHERE id=?", (sid,)))
+
+
+def h_ssh_server_delete(args):
+    sid = _int(args.get("id"), "id")
+    _ssh_server_row(sid)
+    db.execute("DELETE FROM ssh_servers WHERE id=?", (sid,))
+    return {"ok": True}
+
+
+async def h_ssh_server_test(args):
+    sid = _int(args.get("id"), "id")
+    row = _ssh_server_row(sid)
+    try:
+        return await test_server_connection(row, bool(args.get("replace_host_key")))
+    except SshConnectError as exc:
+        raise ToolError(str(exc))
+
+
+def h_ssh_command_list(args):
+    server_id = _int(args.get("server_id"), "server_id")
+    _ssh_server_row(server_id)
+    return db.query("SELECT * FROM ssh_commands WHERE server_id=? ORDER BY id", (server_id,))
+
+
+def _cmd_validate(fn, args):
+    try:
+        return fn(args)
+    except SshError as exc:
+        raise ToolError(str(exc))
+
+
+def h_ssh_command_create(args):
+    server_id = _int(args.get("server_id"), "server_id")
+    _ssh_server_row(server_id)
+    name, command, timeout = _cmd_validate(_cmd_payload, args)
+    if db.query_one("SELECT id FROM ssh_commands WHERE server_id=? AND name=?", (server_id, name)):
+        raise ToolError("команда с таким именем уже есть")
+    cid = db.execute(
+        "INSERT INTO ssh_commands(server_id, name, description, command, arg_regex, timeout, enabled) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (server_id, name, args.get("description") or "", command, args.get("arg_regex") or "",
+         timeout, 1 if args.get("enabled", 1) else 0),
+    )
+    return db.query_one("SELECT * FROM ssh_commands WHERE id=?", (cid,))
+
+
+def h_ssh_command_update(args):
+    cid = _int(args.get("id"), "id")
+    row = _ssh_command_row(cid)
+    merged = {**dict(row), **{k: v for k, v in args.items() if v is not None}}
+    name, command, timeout = _cmd_validate(_cmd_payload, merged)
+    other = db.query_one("SELECT id FROM ssh_commands WHERE server_id=? AND name=? AND id<>?", (row["server_id"], name, cid))
+    if other:
+        raise ToolError("команда с таким именем уже есть")
+    db.execute(
+        "UPDATE ssh_commands SET name=?, description=?, command=?, arg_regex=?, timeout=?, enabled=? WHERE id=?",
+        (name, args.get("description", row["description"]) or "", command,
+         args.get("arg_regex", row["arg_regex"]), timeout,
+         1 if args.get("enabled", row["enabled"]) else 0, cid),
+    )
+    return db.query_one("SELECT * FROM ssh_commands WHERE id=?", (cid,))
+
+
+def h_ssh_command_delete(args):
+    cid = _int(args.get("id"), "id")
+    _ssh_command_row(cid)
+    db.execute("DELETE FROM ssh_commands WHERE id=?", (cid,))
+    return {"ok": True}
+
+
+def h_ssh_command_check(args):
+    command = (args.get("command") or "").strip()
+    if not command:
+        raise ToolError("command обязателен")
+    try:
+        rendered = render_command(command, args.get("arg_regex"), args.get("params") or {})
+    except SshError as exc:
+        raise ToolError(str(exc))
+    return {"ok": True, "rendered": rendered}
+
+
+def h_ssh_run_list(args):
+    own = _own_project()
+    try:
+        limit = max(1, min(int(args.get("limit") or 50), 200))
+    except (TypeError, ValueError):
+        limit = 50
+    sql = "SELECT * FROM ssh_runs WHERE project_id=? AND 1=1"
+    params = [own]
+    if args.get("server_id") is not None:
+        server_id = _int(args.get("server_id"), "server_id")
+        _ssh_server_row(server_id)
+        sql += " AND server_id=?"
+        params.append(server_id)
+    if args.get("command_name"):
+        sql += " AND command_name=?"
+        params.append(str(args["command_name"]))
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    return db.query(sql, params)
+
+
 # ---------- файлы проекта ----------
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
@@ -933,6 +1110,17 @@ HANDLERS = {
     "schedule_update": h_schedule_update,
     "schedule_delete": h_schedule_delete,
     "schedule_run_now": h_schedule_run_now,
+    "ssh_server_list": h_ssh_server_list,
+    "ssh_server_create": h_ssh_server_create,
+    "ssh_server_update": h_ssh_server_update,
+    "ssh_server_delete": h_ssh_server_delete,
+    "ssh_server_test": h_ssh_server_test,
+    "ssh_command_list": h_ssh_command_list,
+    "ssh_command_create": h_ssh_command_create,
+    "ssh_command_update": h_ssh_command_update,
+    "ssh_command_delete": h_ssh_command_delete,
+    "ssh_command_check": h_ssh_command_check,
+    "ssh_run_list": h_ssh_run_list,
     "file_list": h_file_list,
     "file_put": h_file_put,
     "file_delete": h_file_delete,
@@ -1083,6 +1271,63 @@ TOOLS = [
     }, ["id"]),
     _tool("schedule_delete", "Удалить расписание.", {"id": _prop("integer", "id расписания")}, ["id"]),
     _tool("schedule_run_now", "Запустить расписание немедленно.", {"id": _prop("integer", "id расписания")}, ["id"]),
+    _tool("ssh_server_list", "Список SSH-серверов проекта (ключи и пароли скрыты, has_key/has_password показывают наличие).", {}, []),
+    _tool("ssh_server_create", "Добавить SSH-сервер проекта. Приватный ключ/пароль спрашивай у пользователя. После создания проверь подключение ssh_server_test.", {
+        "name": _prop("string", "имя: буквы/цифры/дефис/подчёркивание, до 80 символов"),
+        "host": _prop("string", "адрес хоста"),
+        "port": _prop("integer", "порт (по умолчанию 22)"),
+        "username": _prop("string", "имя пользователя"),
+        "auth_type": _prop("string", "key | password (по умолчанию key)"),
+        "private_key": _prop("string", "приватный ключ PEM (обязателен для auth_type=key)"),
+        "password": _prop("string", "пароль (обязателен для auth_type=password)"),
+        "project_id": _prop("integer", "id проекта"),
+    }, ["name", "host", "username"]),
+    _tool("ssh_server_update", "Изменить SSH-сервер (непереданные поля сохраняются). Смена host/port сбрасывает сохранённый ключ хоста.", {
+        "id": _prop("integer", "id сервера"),
+        "name": _prop("string", "имя"),
+        "host": _prop("string", "адрес хоста"),
+        "port": _prop("integer", "порт"),
+        "username": _prop("string", "имя пользователя"),
+        "auth_type": _prop("string", "key | password"),
+        "private_key": _prop("string", "новый приватный ключ PEM (пусто — не менять)"),
+        "password": _prop("string", "новый пароль (пусто — не менять)"),
+        "enabled": _prop("boolean", "включён"),
+    }, ["id"]),
+    _tool("ssh_server_delete", "Удалить SSH-сервер (каскадно удаляет его команды). Требует подтверждения.", {"id": _prop("integer", "id сервера")}, ["id"]),
+    _tool("ssh_server_test", "Проверить подключение к серверу (TOFU-сохранение ключа хоста). replace_host_key=true — пересохранить ключ после его смены на сервере.", {
+        "id": _prop("integer", "id сервера"),
+        "replace_host_key": _prop("boolean", "пересохранить ключ хоста"),
+    }, ["id"]),
+    _tool("ssh_command_list", "Команды белого списка сервера.", {"server_id": _prop("integer", "id сервера")}, ["server_id"]),
+    _tool("ssh_command_create", "Добавить команду в белый список сервера (шаблон с {параметрами}, каждый валидируется regex из arg_regex).", {
+        "server_id": _prop("integer", "id сервера"),
+        "name": _prop("string", "имя: строчные буквы/цифры/дефис/подчёркивание"),
+        "description": _prop("string", "описание"),
+        "command": _prop("string", "шаблон команды, например 'systemctl status {service}'"),
+        "arg_regex": _prop("string", "JSON {параметр: regex} для валидации параметров"),
+        "timeout": _prop("integer", "таймаут, секунды (по умолчанию 60)"),
+        "enabled": _prop("boolean", "включена"),
+    }, ["server_id", "name", "command"]),
+    _tool("ssh_command_update", "Изменить команду (непереданные поля сохраняются).", {
+        "id": _prop("integer", "id команды"),
+        "name": _prop("string", "имя"),
+        "description": _prop("string", "описание"),
+        "command": _prop("string", "шаблон команды"),
+        "arg_regex": _prop("string", "JSON {параметр: regex}"),
+        "timeout": _prop("integer", "таймаут, секунды"),
+        "enabled": _prop("boolean", "включена"),
+    }, ["id"]),
+    _tool("ssh_command_delete", "Удалить команду из белого списка. Требует подтверждения.", {"id": _prop("integer", "id команды")}, ["id"]),
+    _tool("ssh_command_check", "Проверить шаблон команды с примером параметров (без подключения к серверу).", {
+        "command": _prop("string", "шаблон команды"),
+        "arg_regex": _prop("string", "JSON {параметр: regex}"),
+        "params": _prop("object", "пример параметров {имя: значение}"),
+    }, ["command"]),
+    _tool("ssh_run_list", "Журнал запусков SSH-команд (логи воркеров).", {
+        "server_id": _prop("integer", "фильтр по серверу"),
+        "command_name": _prop("string", "фильтр по имени команды"),
+        "limit": _prop("integer", "сколько вернуть (по умолчанию 50)"),
+    }, []),
     _tool("file_list", "Список файлов проекта (MinIO).", {"project_id": _prop("integer", "id проекта (необязателен — берётся из контекста сессии)"), "prefix": _prop("string", "подпапка, например 'shots'")}, []),
     _tool("file_put", "Сохранить файл в файлы проекта и получить публичную ссылку (аналог скриншотов). content — содержимое (текст/JSON), workspace_path — путь к файлу в workspace воркера, например 'index.html' или 'dist/app.js' (читается с диска воркера).", {
         "project_id": _prop("integer", "id проекта (необязателен — берётся из контекста сессии)"),
