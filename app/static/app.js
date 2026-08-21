@@ -1046,7 +1046,10 @@ function renderChat(sessionId) {
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'ping') return;
-      if (msg.type === 'status') setStatus(msg.status, msg.error);
+      if (msg.type === 'status') {
+        setStatus(msg.status, msg.error);
+        if (['completed', 'failed', 'aborted', 'expired'].includes(msg.status)) generating = false;
+      }
       if (msg.type === 'event') handleEvent(msg.event, msg.ts);
       if (msg.type === 'done') {
         generating = false;
@@ -1063,6 +1066,10 @@ function renderChat(sessionId) {
       $('#chat-title').textContent = s.title;
       $('#chat-agent').textContent = `${s.agent_name} · ${s.model}`;
       setStatus(s.status, s.error);
+      if (['completed', 'failed', 'aborted', 'expired'].includes(s.status)) {
+        const inp = $('#chat-input');
+        if (inp) inp.placeholder = 'Продолжить сессию… (Enter — отправить)';
+      }
       if (s.prompt && !$('#chat-messages').children.length) addUserBubble(s.prompt);
       const m = await api.get(`/api/sessions/${sessionId}/messages`);
       if (m.result) {
@@ -1100,7 +1107,11 @@ function setupChatInput() {
     addUserBubble(text);
     generating = true;
     try {
-      await api.post(`/api/sessions/${activeSessionId}/prompt`, { text });
+      const r = await api.post(`/api/sessions/${activeSessionId}/continue`, { text });
+      if (r.restarted) {
+        setStatus('starting');
+        toast('Воркер перезапускается — сообщение уйдёт после старта');
+      }
     } catch (e) { toast(e.message, 'error'); generating = false; }
   };
   $('#chat-send').onclick = sendPrompt;

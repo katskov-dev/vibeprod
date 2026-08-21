@@ -296,7 +296,7 @@ GET        /api/out-webhooks/{id}/deliveries  delivery log (status, HTTP code, a
 POST       /api/out-webhooks/{id}/deliveries/{did}/retry
 GET        /api/channels
 GET/PUT/DELETE /api/telegram          POST /api/telegram/test {token}
-GET/POST   /api/sessions              POST /api/sessions/{id}/prompt|abort|restart
+GET/POST   /api/sessions              POST /api/sessions/{id}/prompt|abort|restart|continue
 GET        /api/sessions/{id}/messages        DELETE /api/sessions/{id}
 WS         /ws/sessions/{id}
 GET/POST   /api/schedules             PUT/DELETE /api/schedules/{id}

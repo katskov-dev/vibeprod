@@ -296,6 +296,48 @@ async def restart_session(sid):
     await start_session(sid, initial_prompt=None)
 
 
+def session_needs_restart(sid):
+    """True, если для продолжения сессии нужно поднимать воркер заново.
+
+    Воркер считается живым, когда opencode-сессия есть, контейнер существует,
+    а статус позволяет слать промпт напрямую (running/completed/failed).
+    """
+    row = get_session(sid)
+    if not row or row["status"] in ("queued", "starting"):
+        return False
+    if (
+        row["status"] in ("running", "completed", "failed")
+        and row["opencode_session_id"]
+        and row["container_id"]
+        and container_exists(row["container_id"])
+    ):
+        return False
+    return True
+
+
+async def continue_session(sid, text):
+    """Продолжает завершённую/упавшую/истёкшую сессию новым промптом.
+
+    Если воркер жив — просто отправляем промпт. Иначе поднимаем воркер
+    заново: opencode-сессия и переписка сохраняются в docker-томе
+    (vibeprod-oc-<sid>), workspace — bind-mount на хосте, так что история
+    продолжается. Долгая (перезапуск воркера) — вызывать в фоне через spawn.
+    """
+    row = get_session(sid)
+    if not row:
+        raise ValueError("session not found")
+    if row["status"] in ("queued", "starting"):
+        raise RuntimeError("сессия уже запускается — дождитесь и отправьте сообщение")
+    if not session_needs_restart(sid):
+        await send_prompt(sid, text)
+        return
+    if row["container_id"] and container_exists(row["container_id"]):
+        await asyncio.to_thread(kill_worker, row["container_id"])
+    db.execute("UPDATE sessions SET container_id=NULL, host_port=NULL WHERE id=?", (sid,))
+    await streams.stop(sid)
+    await start_session(sid, initial_prompt=text)
+
+
 async def abort_session(sid):
     row = get_session(sid)
     if not row or not row["opencode_session_id"] or not row["container_id"]:

@@ -93,6 +93,35 @@ async def restart_session(session_id: str):
     return {"ok": True}
 
 
+@router.post("/sessions/{session_id}/continue")
+async def continue_session(session_id: str, payload: dict):
+    """Продолжить завершённую сессию новым сообщением.
+
+    Если воркер ещё жив — промпт уходит сразу (restarted=false). Если воркер
+    уже удалён по TTL (или упал) — перезапуск воркера и промпт выполняются в
+    фоне (restarted=true): история opencode-сессии сохраняется в docker-томе,
+    workspace — на хосте (снапшоты файлов вне рамок этой версии).
+    """
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text обязателен")
+    row = db.query_one("SELECT * FROM sessions WHERE id=?", (session_id,))
+    if not row:
+        raise HTTPException(404, "сессия не найдена")
+    if row["status"] in ("queued", "starting"):
+        raise HTTPException(409, "сессия уже запускается — дождитесь и отправьте сообщение")
+    if not session_manager.session_needs_restart(session_id):
+        try:
+            await session_manager.send_prompt(session_id, text)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        return {"ok": True, "restarted": False}
+    from ..main import spawn_start
+
+    spawn_start(session_id, text, continue_=True)
+    return {"ok": True, "restarted": True}
+
+
 @router.post("/sessions/{session_id}/abort")
 async def abort_session(session_id: str):
     row = db.query_one("SELECT * FROM sessions WHERE id=?", (session_id,))

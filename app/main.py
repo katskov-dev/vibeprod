@@ -192,10 +192,12 @@ def login_page(request: Request):
     return FileResponse(str(STATIC_DIR / "login.html"))
 
 
-def spawn_start(session_id, prompt, restart=False):
+def spawn_start(session_id, prompt, restart=False, continue_=False):
     async def _task():
         try:
-            if restart:
+            if continue_:
+                await session_manager.continue_session(session_id, prompt)
+            elif restart:
                 await session_manager.restart_session(session_id)
             else:
                 await session_manager.start_session(session_id, initial_prompt=prompt)

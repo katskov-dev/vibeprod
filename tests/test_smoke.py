@@ -310,6 +310,76 @@ def test_unknown_session_is_404(client):
     assert client.get("/api/sessions/does-not-exist").status_code == 404
 
 
+def _seed_finished_session(sid="cont-1", status="completed"):
+    from app import db
+
+    pid = db.query_one("SELECT id FROM projects ORDER BY id LIMIT 1")["id"]
+    aid = db.query_one("SELECT id FROM agents WHERE is_guardian=0 ORDER BY id LIMIT 1")["id"]
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status, "
+        "opencode_session_id, container_id, last_activity) "
+        "VALUES(?, ?, 'general', ?, 'Продолжаемая', 'manual', ?, 'ocs-1', 'fake-container', datetime('now'))",
+        (sid, aid, pid, status),
+    )
+    return sid
+
+
+def test_continue_session_live_worker_sends_prompt(client, monkeypatch):
+    from app import session_manager
+
+    _seed_finished_session()
+    sent = {}
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: True)
+
+    async def fake_send(sid, text):
+        sent.update(sid=sid, text=text)
+
+    monkeypatch.setattr(session_manager, "send_prompt", fake_send)
+    r = client.post("/api/sessions/cont-1/continue", json={"text": "продолжим?"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "restarted": False}
+    assert sent == {"sid": "cont-1", "text": "продолжим?"}
+
+
+def test_continue_session_dead_worker_spawns_restart(client, monkeypatch):
+    from app import main as main_module
+    from app import session_manager
+
+    _seed_finished_session(status="expired")
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: False)
+    spawned = {}
+    monkeypatch.setattr(main_module, "spawn_start", lambda sid, prompt, **kw: spawned.update(sid=sid, prompt=prompt, kw=kw))
+    r = client.post("/api/sessions/cont-1/continue", json={"text": "продолжим после TTL"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True, "restarted": True}
+    assert spawned == {"sid": "cont-1", "prompt": "продолжим после TTL", "kw": {"continue_": True}}
+
+
+def test_continue_session_validation(client):
+    _seed_finished_session(status="queued")
+    assert client.post("/api/sessions/nope/continue", json={"text": "x"}).status_code == 404
+    assert client.post("/api/sessions/cont-1/continue", json={"text": ""}).status_code == 400
+    assert client.post("/api/sessions/cont-1/continue", json={"text": "x"}).status_code == 409
+
+
+def test_session_needs_restart_logic(client, monkeypatch):
+    from app import session_manager
+
+    _seed_finished_session(status="completed")
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: True)
+    assert session_manager.session_needs_restart("cont-1") is False
+
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: False)
+    assert session_manager.session_needs_restart("cont-1") is True
+
+    _seed_finished_session(sid="cont-2", status="expired")
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: True)
+    assert session_manager.session_needs_restart("cont-2") is True
+
+    _seed_finished_session(sid="cont-3", status="starting")
+    assert session_manager.session_needs_restart("cont-3") is False
+
+
 def test_guardian_ssh_tools(client):
     import asyncio
     import json
