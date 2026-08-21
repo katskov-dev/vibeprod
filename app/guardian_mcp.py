@@ -218,7 +218,7 @@ def h_agent_list(args):
 
 def _agent_payload(args):
     keys = ("name", "description", "mode", "model", "temperature", "variant",
-            "system_prompt", "permission", "is_default", "project_id")
+            "system_prompt", "permission", "memory", "memory_enabled", "is_default", "project_id")
     return {k: args[k] for k in keys if k in args and args[k] is not None}
 
 
@@ -234,7 +234,7 @@ def h_agent_create(args):
         raise ToolError(f"агент с именем {name} уже есть")
     aid = db.execute(
         "INSERT INTO agents(name, description, mode, model, temperature, variant, system_prompt, "
-        "permission, is_default, project_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "permission, memory, memory_enabled, is_default, project_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             name,
             payload.get("description") or "",
@@ -244,6 +244,8 @@ def h_agent_create(args):
             payload.get("variant") or None,
             payload.get("system_prompt") or "",
             payload.get("permission") or '"allow"',
+            payload.get("memory") or "",
+            1 if payload.get("memory_enabled", 1) else 0,
             1 if payload.get("is_default") else 0,
             _check_project(payload.get("project_id")),
         ),
@@ -265,7 +267,8 @@ def h_agent_update(args):
         raise ToolError(f"агент с именем {name} уже есть")
     db.execute(
         "UPDATE agents SET name=?, description=?, mode=?, model=?, temperature=?, variant=?, "
-        "system_prompt=?, permission=?, is_default=?, project_id=?, updated_at=datetime('now') WHERE id=?",
+        "system_prompt=?, permission=?, memory=?, memory_enabled=?, is_default=?, project_id=?, "
+        "updated_at=datetime('now') WHERE id=?",
         (
             name,
             payload.get("description", row["description"]),
@@ -275,6 +278,8 @@ def h_agent_update(args):
             payload.get("variant", row["variant"]) or None,
             payload.get("system_prompt", row["system_prompt"]),
             payload.get("permission", row["permission"]),
+            payload.get("memory", row["memory"]),
+            1 if payload.get("memory_enabled", row["memory_enabled"]) else 0,
             1 if payload.get("is_default") else 0,
             _check_project(payload.get("project_id", row["project_id"])),
             aid,
@@ -1177,6 +1182,8 @@ AGENT_PROPS = {
     "temperature": _prop("number", "температура (необязательно)"),
     "system_prompt": _prop("string", "system-промпт агента"),
     "permission": _prop("string", "permission-конфиг JSON (необязательно)"),
+    "memory": _prop("string", "долговременная память агента: текст, доступный между сессиями"),
+    "memory_enabled": _prop("boolean", "включить память и инструменты memory_get/memory_set (по умолчанию да)"),
     "is_default": _prop("boolean", "сделать агентом по умолчанию"),
     "project_id": _prop("integer", "id проекта"),
 }

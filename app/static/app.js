@@ -463,6 +463,7 @@ async function refreshSessionsList(openId) {
           ${s.source === 'webhook' ? '<span class="px-1.5 py-0.5 rounded bg-fuchsia-900/60 text-xs shrink-0">webhook</span>' : ''}
           ${s.source === 'schedule' ? '<span class="px-1.5 py-0.5 rounded bg-amber-900/60 text-xs shrink-0">расписание</span>' : ''}
           ${s.source === 'guardian' ? '<span class="px-1.5 py-0.5 rounded bg-sky-900/60 text-xs shrink-0">оператор</span>' : ''}
+          ${s.source === 'agent' ? '<span class="px-1.5 py-0.5 rounded bg-emerald-900/60 text-xs shrink-0">вызов агента</span>' : ''}
           ${s.source === 'telegram' ? '<span class="px-1.5 py-0.5 rounded bg-sky-900/60 text-xs shrink-0">telegram</span>' : ''}
         </div>
         <div class="text-xs text-neutral-500">${esc(s.agent_name || '—')} · ${esc(s.model || '')} · ${esc(s.created_at)}</div>
@@ -1280,46 +1281,58 @@ async function refreshAgentsList() {
     el.innerHTML = `<div class="text-neutral-500 text-sm">Агентов нет. Создайте первого — с него начнутся сессии.</div>`;
     return;
   }
-  el.innerHTML = data.map(a => `
-    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-5 mb-3">
-      <div class="flex items-start justify-between">
-        <div>
-          <div class="font-semibold text-lg flex items-center gap-2">
+  el.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${data.map(a => `
+    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-5 flex flex-col">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="font-semibold text-lg truncate">
             ${esc(a.name)}
             ${a.is_default ? '<span class="text-xs text-sky-400">default</span>' : ''}
           </div>
-          <div class="text-sm text-neutral-500">${esc(a.description || '')}</div>
+          ${a.description ? `<div class="text-sm text-neutral-500 line-clamp-2 mt-0.5">${esc(a.description)}</div>` : ''}
         </div>
-        <div class="flex gap-2 text-xs">
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${a.id}">удалить</button>
+        <div class="flex gap-1 text-xs shrink-0">
+          <button class="edit px-2 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}" title="изменить">✎</button>
+          <button class="del px-2 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${a.id}" title="удалить">✕</button>
         </div>
       </div>
-      <div class="flex flex-wrap gap-2 mt-3 text-xs">
-        <span class="px-2 py-1 rounded bg-neutral-800 mono">${esc(a.model)}</span>
-        <span class="px-2 py-1 rounded bg-neutral-800">${esc(a.mode)}</span>
-        ${a.temperature != null ? `<span class="px-2 py-1 rounded bg-neutral-800">temp ${esc(a.temperature)}</span>` : ''}
-        ${a.variant ? `<span class="px-2 py-1 rounded bg-neutral-800">вариант: ${esc(a.variant)}</span>` : ''}
-        ${a.mcp.map(m => `<span class="px-2 py-1 rounded bg-purple-900/50 mono">mcp:${esc(m.name)}</span>`).join('')}
-        ${a.skills.map(s => `<span class="px-2 py-1 rounded bg-emerald-900/50 mono">skill:${esc(s.name)}</span>`).join('')}
+      <div class="mt-auto pt-4">
+        <button class="write w-full px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium" data-id="${a.id}">Написать</button>
       </div>
-      ${a.system_prompt ? `<pre class="mt-3 text-xs text-neutral-500 mono whitespace-pre-wrap border-t border-neutral-800 pt-2">${esc(a.system_prompt.slice(0, 300))}${a.system_prompt.length > 300 ? '…' : ''}</pre>` : ''}
-    </div>`).join('');
+    </div>`).join('')}</div>`;
   $$('.edit', el).forEach(b => b.onclick = () => agentModal(+b.dataset.id));
   $$('.del', el).forEach(b => b.onclick = async () => {
     if (!confirm('Удалить агента?')) return;
     await api.del(`/api/agents/${b.dataset.id}`);
     await refreshAgentsList();
   });
+  $$('.write', el).forEach(b => b.onclick = () => writeAgent(+b.dataset.id));
+}
+
+async function writeAgent(agentId) {
+  let a;
+  try { a = await api.get(`/api/agents/${agentId}`); } catch { return; }
+  openModal(`Написать агенту «${a.name}»`, `
+    ${formArea('Промпт', 'prompt', '', 6, 'Что нужно сделать…')}`,
+    async (close) => {
+      const f = readForm($('#modal-body'));
+      if (!f.prompt.trim()) throw new Error('Промпт обязателен');
+      const s = await api.post('/api/sessions', { agent_id: agentId, prompt: f.prompt, project_id: currentProject || undefined });
+      close();
+      showView('sessions', s.id);
+    });
 }
 
 async function agentModal(agentId) {
   const isEdit = !!agentId;
   const a = isEdit ? await api.get(`/api/agents/${agentId}`) : {
     name: '', description: '', mode: 'primary', model: 'deepseek/deepseek-chat',
-    temperature: '', system_prompt: '', permission: '"allow"', is_default: false, mcp: [], skills: [],
+    temperature: '', system_prompt: '', permission: '"allow"', is_default: false,
+    memory: '', memory_enabled: true, mcp: [], skills: [], calls: [],
   };
   const skills = await api.get('/api/skills');
+  let allAgents = [];
+  try { allAgents = await api.get('/api/agents' + projQuery()); } catch {}
   let provs = [];
   try { provs = await api.get('/api/providers' + projQuery()); } catch {}
   let projects = [];
@@ -1333,8 +1346,10 @@ async function agentModal(agentId) {
     <div class="flex gap-2 mb-4 text-sm">
       <button id="tab-general" class="px-3 py-1.5 rounded-lg bg-neutral-800">Основное</button>
       <button id="tab-system" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">System-промпт</button>
+      <button id="tab-memory" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">Память</button>
       <button id="tab-mcp" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">MCP (${a.mcp.length})</button>
       <button id="tab-skills" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">Скиллы (${a.skills.length})</button>
+      <button id="tab-calls" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">Вызовы (${a.calls.length})</button>
     </div>
     <div id="tab-general-pane">
       ${formInput('Имя (латиница, дефисы)', 'name', a.name, 'my-agent')}
@@ -1377,6 +1392,13 @@ async function agentModal(agentId) {
     <div id="tab-system-pane" class="hidden">
       ${formArea('System-промпт (становится телом agent-файла opencode)', 'system_prompt', a.system_prompt, 12)}
     </div>
+    <div id="tab-memory-pane" class="hidden">
+      <label class="flex items-center gap-2 text-sm mb-3">
+        <input type="checkbox" name="memory_enabled" ${a.memory_enabled ? 'checked' : ''} class="accent-sky-600">
+        <span class="text-neutral-400 text-xs">Включить память агента (инструменты memory_get/memory_set и контекст между сессиями)</span>
+      </label>
+      ${formArea('Память (долговременный текст агента — что он помнит между задачами)', 'memory', a.memory || '', 10)}
+    </div>
     <div id="tab-mcp-pane" class="hidden">
       <div class="text-xs text-neutral-500 mb-2">Каталог — добавьте одной кнопкой:</div>
       <div id="mcp-catalog-list" class="space-y-1.5 mb-3"></div>
@@ -1393,10 +1415,21 @@ async function agentModal(agentId) {
           <span class="text-xs text-neutral-500">— ${esc(s.description)}</span>
         </label>`).join('') || '<div class="text-neutral-600 text-sm">Скиллов пока нет — создайте во вкладке «Скиллы» на странице агентов.</div>'}
       </div>
+    </div>
+    <div id="tab-calls-pane" class="hidden">
+      <div class="text-xs text-neutral-500 mb-3">Отмеченных агентов этот агент сможет вызвать инструментами agent_call_list/agent_run — каждый запустится отдельной сессией со своим workspace, инструментами и памятью, результат вернётся вызывающему.</div>
+      <div id="calls-checkbox" class="space-y-2">${allAgents.filter(x => !isEdit || x.id !== agentId).map(x => `
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" data-call="${x.id}" class="accent-emerald-600" ${a.calls.some(c => c.id === x.id) ? 'checked' : ''}>
+          <span class="mono text-xs text-sky-300">${esc(x.name)}</span>
+          <span class="text-xs text-neutral-500">— ${esc(x.description || '')}</span>
+        </label>`).join('') || '<div class="text-neutral-600 text-sm">Других агентов пока нет — создайте их, чтобы этот агент мог их вызывать.</div>'}
+      </div>
     </div>`;
   openModal(isEdit ? `Агент: ${a.name}` : 'Новый агент', body, async (close) => {
-    const f = { ...readForm($('#tab-general-pane')), ...readForm($('#tab-system-pane')) };
+    const f = { ...readForm($('#tab-general-pane')), ...readForm($('#tab-system-pane')), ...readForm($('#tab-memory-pane')) };
     f.is_default = $('[name="is_default"]', $('#tab-general-pane')).checked;
+    f.memory_enabled = $('[name="memory_enabled"]', $('#tab-memory-pane')).checked;
     f.project_id = currentProject || f.project_id || null;
     const mcp = $$('#mcp-list [data-mcp]').map(el => {
       const d = el.dataset;
@@ -1413,6 +1446,8 @@ async function agentModal(agentId) {
       else if (m.name) await api.post(`/api/agents/${agentId}/mcp`, m);
     }
     await api.put(`/api/agents/${agentId}/skills`, { skill_ids: skillIds });
+    const callIds = $$('#calls-checkbox [data-call]:checked').map(el => +el.dataset.call);
+    await api.put(`/api/agents/${agentId}/calls`, { target_ids: callIds });
     close();
     await refreshAgentsList();
   });
@@ -1545,7 +1580,7 @@ async function agentModal(agentId) {
     updateModelSummary();
     loadModelsForProvider(curProvider);
   })();
-  const tabs = { 'tab-general': 'tab-general-pane', 'tab-system': 'tab-system-pane', 'tab-mcp': 'tab-mcp-pane', 'tab-skills': 'tab-skills-pane' };
+  const tabs = { 'tab-general': 'tab-general-pane', 'tab-system': 'tab-system-pane', 'tab-memory': 'tab-memory-pane', 'tab-mcp': 'tab-mcp-pane', 'tab-skills': 'tab-skills-pane', 'tab-calls': 'tab-calls-pane' };
   Object.entries(tabs).forEach(([btn, pane]) => {
     $(`#${btn}`).onclick = () => {
       Object.values(tabs).forEach(p => $(`#${p}`).classList.add('hidden'));

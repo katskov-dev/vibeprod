@@ -53,6 +53,11 @@ def _agent_dict(row):
         "WHERE x.agent_id=? ORDER BY s.name",
         (row["id"],),
     )
+    a["calls"] = db.query(
+        "SELECT a2.id, a2.name, a2.description, a2.mode FROM agent_calls c "
+        "JOIN agents a2 ON a2.id=c.target_id WHERE c.caller_id=? ORDER BY a2.name",
+        (row["id"],),
+    )
     return a
 
 
@@ -86,8 +91,9 @@ def create_agent(payload: dict):
     if db.query_one("SELECT id FROM agents WHERE name=?", (name,)):
         raise HTTPException(409, "агент с таким именем уже есть")
     aid = db.execute(
-        "INSERT INTO agents(name, description, mode, model, temperature, variant, system_prompt, permission, is_default, project_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO agents(name, description, mode, model, temperature, variant, system_prompt, permission, "
+        "memory, memory_enabled, is_default, project_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             name,
             payload.get("description") or "",
@@ -97,6 +103,8 @@ def create_agent(payload: dict):
             payload.get("variant") or None,
             payload.get("system_prompt") or "",
             payload.get("permission") or '"allow"',
+            payload.get("memory") or "",
+            1 if payload.get("memory_enabled", 1) else 0,
             1 if payload.get("is_default") else 0,
             _check_project(payload.get("project_id")),
         ),
@@ -132,7 +140,7 @@ def update_agent(agent_id: int, payload: dict):
         raise HTTPException(409, "агент с таким именем уже есть")
     db.execute(
         "UPDATE agents SET name=?, description=?, mode=?, model=?, temperature=?, variant=?, system_prompt=?, "
-        "permission=?, is_default=?, project_id=?, updated_at=datetime('now') WHERE id=?",
+        "permission=?, memory=?, memory_enabled=?, is_default=?, project_id=?, updated_at=datetime('now') WHERE id=?",
         (
             name,
             payload.get("description", row["description"]),
@@ -142,6 +150,8 @@ def update_agent(agent_id: int, payload: dict):
             payload.get("variant", row["variant"]) or None,
             payload.get("system_prompt", row["system_prompt"]),
             payload.get("permission", row["permission"]),
+            payload.get("memory", row["memory"]),
+            1 if payload.get("memory_enabled", row["memory_enabled"]) else 0,
             1 if payload.get("is_default") else 0,
             _check_project(payload.get("project_id", row["project_id"])),
             agent_id,
@@ -244,6 +254,41 @@ def set_agent_skills(agent_id: int, payload: dict):
     db.execute("DELETE FROM agent_skills WHERE agent_id=?", (agent_id,))
     db.exec_many("INSERT INTO agent_skills(agent_id, skill_id) VALUES(?,?)",
                  [(agent_id, s) for s in skill_ids])
+    return {"ok": True}
+
+
+@router.get("/agents/{agent_id}/calls")
+def get_agent_calls(agent_id: int):
+    if not db.query_one("SELECT id FROM agents WHERE id=?", (agent_id,)):
+        raise HTTPException(404, "агент не найден")
+    return db.query(
+        "SELECT a.id, a.name, a.description, a.mode FROM agent_calls c "
+        "JOIN agents a ON a.id=c.target_id WHERE c.caller_id=? ORDER BY a.name",
+        (agent_id,),
+    )
+
+
+@router.put("/agents/{agent_id}/calls")
+def set_agent_calls(agent_id: int, payload: dict):
+    if not db.query_one("SELECT id FROM agents WHERE id=?", (agent_id,)):
+        raise HTTPException(404, "агент не найден")
+    _guard(agent_id)
+    target_ids = payload.get("target_ids") or []
+    try:
+        target_ids = [int(t) for t in target_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(400, "target_ids: список id агентов")
+    for tid in target_ids:
+        if tid == agent_id:
+            raise HTTPException(400, "агент не может вызвать сам себя")
+        row = db.query_one("SELECT id, is_guardian FROM agents WHERE id=?", (tid,))
+        if not row:
+            raise HTTPException(400, f"агент {tid} не существует")
+        if row["is_guardian"]:
+            raise HTTPException(400, "guardian — системный агент, его нельзя вызывать")
+    db.execute("DELETE FROM agent_calls WHERE caller_id=?", (agent_id,))
+    db.exec_many("INSERT INTO agent_calls(caller_id, target_id) VALUES(?,?)",
+                 [(agent_id, t) for t in target_ids])
     return {"ok": True}
 
 

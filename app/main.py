@@ -33,6 +33,7 @@ from .api import (
     sessions,
     ssh,
     telegram as telegram_api,
+    vision,
     webhooks,
     ws,
 )
@@ -110,6 +111,7 @@ app.include_router(sessions.router)
 app.include_router(schedules.router)
 app.include_router(ssh.router)
 app.include_router(telegram_api.router)
+app.include_router(vision.router)
 app.include_router(webhooks.router)
 app.include_router(ws.router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -135,6 +137,8 @@ async def require_auth(request: Request, call_next):
     if path in ("/api/files/content", "/api/files/stat") and _file_token_ok(request):
         return await call_next(request)
     if path in ("/api/ssh/config", "/api/ssh/runs") and _ssh_token_ok(request):
+        return await call_next(request)
+    if path == "/api/vision/config" and _ssh_token_ok(request):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)

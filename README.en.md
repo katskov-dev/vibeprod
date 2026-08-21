@@ -137,6 +137,11 @@ prompt — plus attached MCP servers and skills. When a session starts,
 `.opencode/skills/*/SKILL.md` into the worker's workspace. Nothing proprietary:
 what the worker sees is stock opencode configuration.
 
+**Agent memory** is long-term text the agent sees in every new session (injected
+into its agent file) and updates itself with the `memory_get`/`memory_set` tools
+of the built-in «vibeprod» MCP. Memory is on by default for new agents and can
+be switched off (and edited) in the agent card's «Memory» tab.
+
 ![MCP catalog](docs/screenshots/mcp-catalog.png)
 
 The **MCP catalog** holds reusable servers of two kinds. *Generic* ones are

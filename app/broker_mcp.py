@@ -1,9 +1,12 @@
 """Broker MCP: встроенные инструменты Vibeprod для воркеров всех сессий.
 
 Воркер каждой сессии получает в opencode.json remote-MCP «vibeprod» с URL
-брокера и Bearer-секретом (тот же, что у guardian MCP). Сейчас это инструменты
-Telegram: агент может написать пользователю и прислать файл (файлы проекта,
-отчёты, скриншоты) — канал настраивается в «Автоматизация → Каналы».
+брокера и Bearer-секретом (тот же, что у guardian MCP). Инструменты:
+- память агента (memory_get/memory_set) — долговременный текст, доступный
+  между сессиями; включается/выключается в настройках агента;
+- Telegram: агент может написать пользователю и прислать файл (файлы проекта,
+  отчёты, скриншоты) — канал настраивается в «Автоматизация → Каналы»;
+- issues проекта и скачивание файлов проекта в workspace.
 
 Протокол — streamable HTTP поверх JSON-RPC, как у guardian. Доступ к файлам
 воркера: broker читает workspace сессии на хосте (bind-mount), путь берётся из
@@ -172,6 +175,48 @@ async def h_telegram_send_file(args, ctx):
     caption = (args.get("caption") or "").strip() or None
     message_id = await channel.send_file(pid, chat, content, filename, caption=caption)
     return {"ok": True, "chat_id": chat, "message_id": message_id, "filename": filename}
+
+
+# ---------- память агента ----------
+
+MEMORY_LIMIT = 100_000
+
+
+def _memory_agent(ctx):
+    """Агент текущей сессии, если у него включена память."""
+    sid = ctx.get("session_id")
+    if not sid:
+        raise ToolError("память доступна только из сессии воркера")
+    row = db.query_one(
+        "SELECT a.id, a.name, a.memory, a.memory_enabled FROM sessions s "
+        "JOIN agents a ON a.id=s.agent_id WHERE s.id=?",
+        (sid,),
+    )
+    if not row:
+        raise ToolError("сессия не привязана к агенту")
+    if not row["memory_enabled"]:
+        raise ToolError("память у агента выключена — включите её в настройках агента")
+    return row
+
+
+def h_memory_get(args, ctx):
+    row = _memory_agent(ctx)
+    return {"agent": row["name"], "memory": row["memory"] or ""}
+
+
+def h_memory_set(args, ctx):
+    row = _memory_agent(ctx)
+    text = args.get("memory")
+    if text is None:
+        raise ToolError("memory обязателен")
+    text = str(text)
+    if len(text) > MEMORY_LIMIT:
+        raise ToolError(f"память больше {MEMORY_LIMIT // 1000}К символов — сократите")
+    db.execute(
+        "UPDATE agents SET memory=?, updated_at=datetime('now') WHERE id=?",
+        (text, row["id"]),
+    )
+    return {"ok": True, "agent": row["name"], "length": len(text)}
 
 
 # ---------- issues ----------
@@ -348,18 +393,171 @@ def h_file_download(args, ctx):
     return {"ok": True, "path": str(target.relative_to(ws)), "name": target.name, "size": written}
 
 
+# ---------- вызовы других агентов ----------
+
+TEAM_TOOLS = {"agent_call_list", "agent_run", "agent_status"}
+
+CALL_WAIT_DEFAULT = 900
+CALL_WAIT_MIN = 5
+CALL_WAIT_MAX = 3600
+CALL_POLL = 3
+
+
+def _caller_agent(ctx):
+    """Агент текущей сессии (кто вызывает)."""
+    sid = ctx.get("session_id")
+    if not sid:
+        raise ToolError("вызов других агентов доступен только из сессии воркера")
+    row = db.query_one(
+        "SELECT s.agent_id, s.project_id, a.name FROM sessions s "
+        "JOIN agents a ON a.id=s.agent_id WHERE s.id=?",
+        (sid,),
+    )
+    if not row:
+        raise ToolError("сессия не привязана к агенту")
+    return row
+
+
+def _target_agent(args):
+    """Целевой агент по id или имени (не guardian)."""
+    raw = str(args.get("agent") or "").strip()
+    if not raw:
+        raise ToolError("agent обязателен: id или имя агента")
+    try:
+        row = db.query_one("SELECT * FROM agents WHERE id=? AND is_guardian=0", (int(raw),))
+    except (TypeError, ValueError):
+        row = db.query_one("SELECT * FROM agents WHERE name=? AND is_guardian=0", (raw,))
+    if not row:
+        raise ToolError(f"агент {raw} не найден")
+    return row
+
+
+def _call_allowed(caller_id, target_id):
+    return bool(
+        db.query_one("SELECT 1 FROM agent_calls WHERE caller_id=? AND target_id=?", (caller_id, target_id))
+    )
+
+
+def _session_result_out(row):
+    out = {
+        "session_id": row["id"],
+        "agent_name": row["agent_name"],
+        "title": row["title"],
+        "status": row["status"],
+        "error": row["error"],
+    }
+    raw = row["result_json"]
+    if raw:
+        try:
+            out["result"] = json.loads(raw)
+        except (ValueError, TypeError):
+            out["result"] = raw
+    return out
+
+
+def h_agent_call_list(args, ctx):
+    caller = _caller_agent(ctx)
+    rows = db.query(
+        "SELECT a.id, a.name, a.description, a.mode FROM agent_calls c "
+        "JOIN agents a ON a.id=c.target_id WHERE c.caller_id=? ORDER BY a.name",
+        (caller["agent_id"],),
+    )
+    return [dict(r) for r in rows]
+
+
+async def h_agent_run(args, ctx):
+    caller = _caller_agent(ctx)
+    target = _target_agent(args)
+    if int(target["id"]) == int(caller["agent_id"]):
+        raise ToolError("агент не может вызвать сам себя")
+    if not _call_allowed(caller["agent_id"], target["id"]):
+        raise ToolError(
+            f"агент «{caller['name']}» не может вызывать агента «{target['name']}» — "
+            "добавьте его в «Может вызывать» в настройках агента"
+        )
+    prompt = (args.get("prompt") or "").strip()
+    if not prompt:
+        raise ToolError("prompt обязателен")
+    sid = session_manager.create_session(
+        target["id"],
+        args.get("title") or prompt[:60],
+        prompt,
+        source="agent",
+        project_id=caller["project_id"],
+    )
+    from .main import spawn_start
+
+    spawn_start(sid, prompt)
+    if not args.get("wait", True):
+        return {"ok": True, "session_id": sid, "status": "queued"}
+    try:
+        timeout = int(args.get("timeout") or CALL_WAIT_DEFAULT)
+    except (TypeError, ValueError):
+        timeout = CALL_WAIT_DEFAULT
+    timeout = max(CALL_WAIT_MIN, min(timeout, CALL_WAIT_MAX))
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        row = db.query_one("SELECT * FROM sessions WHERE id=?", (sid,))
+        if row and row["status"] in ("completed", "failed"):
+            return {"ok": True, **_session_result_out(row)}
+        if asyncio.get_event_loop().time() >= deadline:
+            return {
+                "ok": True,
+                "session_id": sid,
+                "status": (row or {}).get("status") or "queued",
+                "note": f"сессия ещё не завершилась (лимит {timeout}с) — проверьте результат через agent_status",
+            }
+        await asyncio.sleep(CALL_POLL)
+
+
+def h_agent_status(args, ctx):
+    sid = (args.get("session_id") or "").strip()
+    if not sid:
+        raise ToolError("session_id обязателен")
+    pid = ctx.get("project_id")
+    if pid is None:
+        raise ToolError("сессия не привязана к проекту")
+    row = db.query_one("SELECT * FROM sessions WHERE id=?", (sid,))
+    if not row:
+        raise ToolError(f"сессия {sid} не найдена")
+    if row.get("project_id") is not None and int(row["project_id"]) != int(pid):
+        raise ToolError("нет доступа к сессии другого проекта")
+    return _session_result_out(row)
+
+
 HANDLERS = {
     "telegram_info": h_telegram_info,
     "telegram_send": h_telegram_send,
     "telegram_send_file": h_telegram_send_file,
+    "memory_get": h_memory_get,
+    "memory_set": h_memory_set,
     "issue_create": h_issue_create,
     "issue_list": h_issue_list,
     "issue_update": h_issue_update,
     "issue_delete": h_issue_delete,
     "file_download": h_file_download,
+    "agent_call_list": h_agent_call_list,
+    "agent_run": h_agent_run,
+    "agent_status": h_agent_status,
 }
 
 BROKER_TOOLS = [
+    _tool(
+        "memory_get",
+        "Прочитать долговременную память агента — текст, который сохраняется между сессиями "
+        "и помогает переключаться между задачами. Вызывай в начале новой задачи.",
+        {},
+        [],
+    ),
+    _tool(
+        "memory_set",
+        "Обновить долговременную память агента (заменяет текст целиком). Сохраняй сюда то, что "
+        "пригодится в следующих сессиях: контекст проектов, договорённости с пользователем, "
+        "прогресс по задачам. Сначала прочитай текущую память через memory_get и запиши новую "
+        "версию целиком.",
+        {"memory": _prop("string", "полный новый текст памяти (заменяет старый)")},
+        ["memory"],
+    ),
     _tool(
         "telegram_info",
         "Статус Telegram-канала проекта: настроен ли бот, id чата для уведомлений, ошибки подключения.",
@@ -446,6 +644,35 @@ BROKER_TOOLS = [
         },
         ["path"],
     ),
+    _tool(
+        "agent_call_list",
+        "Список агентов, которых ты можешь вызвать (настроено в «Может вызывать» в настройках твоего агента). "
+        "Вызывай в начале, чтобы узнать доступных агентов, их роли и описания.",
+        {},
+        [],
+    ),
+    _tool(
+        "agent_run",
+        "Вызвать другого агента как отдельную сессию со своим workspace, инструментами и памятью. "
+        "agent — id или имя агента из agent_call_list. Сессия получит prompt как первое сообщение. "
+        "По умолчанию ждёт завершения (wait=true) и возвращает статус и итоговый результат; "
+        "если задача долгая, передай wait=false и проверяй результат позже через agent_status.",
+        {
+            "agent": _prop("string", "id или имя агента из agent_call_list"),
+            "prompt": _prop("string", "задача для агента (подробно: контекст, цель, критерии готовности)"),
+            "title": _prop("string", "заголовок сессии (необязательно — по умолчанию начало prompt)"),
+            "wait": _prop("boolean", "ждать завершения сессии (по умолчанию true)"),
+            "timeout": _prop("integer", f"максимум ожидания в секундах при wait=true (по умолчанию {CALL_WAIT_DEFAULT}, максимум {CALL_WAIT_MAX})"),
+        },
+        ["agent", "prompt"],
+    ),
+    _tool(
+        "agent_status",
+        "Статус и результат ранее запущенной сессии (session_id из agent_run или из ответа без ожидания). "
+        "Возвращает status (queued/starting/running/completed/failed), error и result (итоговый результат агента).",
+        {"session_id": _prop("string", "id сессии из ответа agent_run")},
+        ["session_id"],
+    ),
 ]
 
 
@@ -464,3 +691,23 @@ async def call_tool(name, args, ctx=None):
     if isinstance(result, dict) and set(result.keys()) == {"content", "isError"}:
         return result
     return _tool_result(json.dumps(result, ensure_ascii=False, default=str))
+
+
+def tools_for(ctx):
+    """Инструменты для воркера: memory_* — только при включённой памяти агента,
+    agent_* (вызовы агентов) — только если у агента настроен список вызовов."""
+    tools = BROKER_TOOLS
+    sid = (ctx or {}).get("session_id")
+    if sid:
+        row = db.query_one(
+            "SELECT a.memory_enabled, "
+            "(SELECT COUNT(*) FROM agent_calls c WHERE c.caller_id=a.id) AS calls "
+            "FROM sessions s JOIN agents a ON a.id=s.agent_id WHERE s.id=?",
+            (sid,),
+        )
+        if row:
+            if not row["memory_enabled"]:
+                tools = [t for t in tools if not t["name"].startswith("memory_")]
+            if not row["calls"]:
+                tools = [t for t in tools if t["name"] not in TEAM_TOOLS]
+    return tools

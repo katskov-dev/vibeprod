@@ -50,6 +50,14 @@ def _write_agent_file(wdir, agent):
     body = (agent.get("system_prompt") or "").strip()
     if not body:
         body = "You are a helpful assistant."
+    memory = (agent.get("memory") or "").strip()
+    if memory and agent.get("memory_enabled"):
+        body += (
+            "\n\n## Память агента\n\n"
+            "Твоя долговременная память (сохраняется между сессиями). "
+            "В начале новой задачи читай её как контекст и продолжай с места, "
+            "где остановился. Обновляй её инструментами memory_get/memory_set.\n\n"
+        ) + memory + "\n"
     text = "---\n" + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True) + "---\n\n" + body + "\n"
     path = wdir / ".opencode" / "agent" / f"{agent['name']}.md"
     path.parent.mkdir(parents=True, exist_ok=True)

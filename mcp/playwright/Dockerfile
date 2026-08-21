@@ -10,10 +10,14 @@ COPY files-mcp/package.json ./
 RUN npm install --omit=dev
 COPY files-mcp/server.mjs ./
 
+# vision MCP: анализ скриншотов моделью DeepSeek vision. Тоже в этом
+# контейнере — читает /vibeprod-shots напрямую.
+COPY vision-mcp/server.mjs /vision-mcp/server.mjs
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 8931 8932
+EXPOSE 8931 8932 8934
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=6 \
   CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/8931' || exit 1

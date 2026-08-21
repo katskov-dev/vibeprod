@@ -22,3 +22,7 @@ RUN apk add --no-cache \
     sshpass \
     make \
     zip openssl file
+
+# Pillow — работа агентов с изображениями (сжатие, обрезка, скриншоты, OCR-подготовка).
+# musl-wheel ставится без компиляторов; тифф/вебп-поддержка — через пирамидку ниже.
+RUN pip3 install --no-cache-dir --break-system-packages pillow

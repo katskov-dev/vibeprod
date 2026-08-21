@@ -16,10 +16,18 @@ CREATE TABLE IF NOT EXISTS agents (
   variant TEXT,
   system_prompt TEXT DEFAULT '',
   permission TEXT DEFAULT '"allow"',
+  memory TEXT DEFAULT '',
+  memory_enabled INTEGER DEFAULT 1,
   is_default INTEGER DEFAULT 0,
   project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS agent_calls (
+  caller_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  target_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  PRIMARY KEY (caller_id, target_id)
 );
 
 CREATE TABLE IF NOT EXISTS agent_mcp (

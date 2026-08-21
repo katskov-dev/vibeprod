@@ -306,6 +306,108 @@ def test_guardian_scoped_to_own_project(client):
     deny("file_delete", {"project_id": pid2, "path": "x.txt"})
 
 
+def test_agent_memory_crud_and_default(client):
+    r = client.post("/api/agents", json={"name": "memory-agent", "description": "d", "project_id": 1})
+    assert r.status_code == 200, r.text
+    a = r.json()
+    assert a["memory_enabled"] == 1, "память включена по умолчанию"
+    assert a["memory"] == ""
+
+    r = client.put(f"/api/agents/{a['id']}", json={"memory": "важно: любим nginx", "memory_enabled": False})
+    assert r.status_code == 200, r.text
+    a2 = r.json()
+    assert a2["memory"] == "важно: любим nginx"
+    assert a2["memory_enabled"] == 0
+
+    # обновление без полей памяти — значения сохраняются
+    r = client.put(f"/api/agents/{a['id']}", json={"description": "x"})
+    assert r.json()["memory_enabled"] == 0
+    assert r.json()["memory"] == "важно: любим nginx"
+
+
+def test_broker_memory_tools(client):
+    import asyncio
+
+    from app import broker_mcp, db
+
+    aid = db.execute(
+        "INSERT INTO agents(name, mode, model, memory, memory_enabled) VALUES('mem-a', 'primary', 'm/m', 'старая память', 1)"
+    )
+    sid = "mem-sess"
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status) "
+        "VALUES(?, ?, 'mem-a', 1, 't', 'manual', 'running')",
+        (sid, aid),
+    )
+    ctx = {"session_id": sid, "project_id": 1}
+
+    r = asyncio.run(broker_mcp.call_tool("memory_get", {}, ctx))
+    assert not r["isError"] and "старая память" in r["content"][0]["text"]
+
+    r = asyncio.run(broker_mcp.call_tool("memory_set", {"memory": "новая память"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    assert db.query_one("SELECT memory FROM agents WHERE id=?", (aid,))["memory"] == "новая память"
+
+    r = asyncio.run(broker_mcp.call_tool("memory_set", {}, ctx))
+    assert r["isError"] and "memory обязателен" in r["content"][0]["text"]
+
+    # tools_for: выключили — инструментов нет, вызовы падают с понятной ошибкой
+    assert {"memory_get", "memory_set"} <= {t["name"] for t in broker_mcp.tools_for(ctx)}
+    db.execute("UPDATE agents SET memory_enabled=0 WHERE id=?", (aid,))
+    assert not ({"memory_get", "memory_set"} & {t["name"] for t in broker_mcp.tools_for(ctx)})
+    r = asyncio.run(broker_mcp.call_tool("memory_get", {}, ctx))
+    assert r["isError"] and "выключена" in r["content"][0]["text"]
+
+    # без сессии воркера память недоступна
+    r = asyncio.run(broker_mcp.call_tool("memory_get", {}, {"project_id": 1}))
+    assert r["isError"]
+
+
+def test_render_injects_memory(tmp_path):
+    from app.render import render_workspace
+
+    wdir = tmp_path / "ws"
+    render_workspace(
+        wdir,
+        [
+            {"name": "mem-agent", "mode": "primary", "model": "m/m", "is_default": 1,
+             "memory": "важное: деплой на 200.165.236.68", "memory_enabled": 1},
+            {"name": "no-mem", "mode": "primary", "model": "m/m",
+             "memory": "важное", "memory_enabled": 0},
+        ],
+        [],
+        [],
+    )
+    text_on = (wdir / ".opencode" / "agent" / "mem-agent.md").read_text(encoding="utf-8")
+    assert "## Память агента" in text_on and "деплой на 200.165.236.68" in text_on
+    text_off = (wdir / ".opencode" / "agent" / "no-mem.md").read_text(encoding="utf-8")
+    assert "Память агента" not in text_off and "важное" not in text_off
+
+
+def test_guardian_agent_memory(client):
+    import asyncio
+    import json
+
+    from app import guardian_mcp
+
+    ctx = {"session_id": "sess1", "project_id": 1}
+    r = asyncio.run(guardian_mcp.call_tool(
+        "agent_create", {"name": "guardian-mem", "memory": "память g", "memory_enabled": False}, ctx
+    ))
+    assert not r["isError"], r["content"][0]["text"]
+    a = json.loads(r["content"][0]["text"])
+    assert a["memory"] == "память g" and a["memory_enabled"] == 0
+
+    r = asyncio.run(guardian_mcp.call_tool("agent_update", {"id": a["id"], "memory_enabled": True}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    a2 = json.loads(r["content"][0]["text"])
+    assert a2["memory_enabled"] == 1 and a2["memory"] == "память g"
+
+    # guardian не может трогать чужой проект и системного агента
+    r = asyncio.run(guardian_mcp.call_tool("agent_update", {"id": a["id"], "memory": "x"}, {"session_id": "s", "project_id": 999}))
+    assert r["isError"]
+
+
 def test_unknown_session_is_404(client):
     assert client.get("/api/sessions/does-not-exist").status_code == 404
 
@@ -1195,6 +1297,161 @@ def test_broker_file_download(client, monkeypatch, tmp_path):
     # без сессии нельзя
     r = asyncio.run(broker_mcp.call_tool("file_download", {"path": "x"}, {"project_id": 1}))
     assert r["isError"] and "сессии воркера" in r["content"][0]["text"]
+
+
+def test_agent_calls_api(client):
+    from app import db
+
+    def create(name):
+        r = client.post("/api/agents", json={"name": name, "description": f"агент {name}", "project_id": 1})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    manager = create("manager")
+    dev = create("developer")
+    tester = create("tester")
+
+    r = client.put(f"/api/agents/{manager['id']}/calls", json={"target_ids": [dev["id"], tester["id"]]})
+    assert r.status_code == 200, r.text
+    assert {a["id"] for a in client.get(f"/api/agents/{manager['id']}/calls").json()} == {dev["id"], tester["id"]}
+    assert len(client.get(f"/api/agents/{manager['id']}").json()["calls"]) == 2
+
+    # замена списка целиком
+    r = client.put(f"/api/agents/{manager['id']}/calls", json={"target_ids": [dev["id"]]})
+    assert {a["id"] for a in client.get(f"/api/agents/{manager['id']}/calls").json()} == {dev["id"]}
+
+    # сам себя / несуществующий / guardian — ошибка, список не пострадал
+    assert client.put(f"/api/agents/{manager['id']}/calls", json={"target_ids": [manager["id"]]}).status_code == 400
+    assert client.put(f"/api/agents/{manager['id']}/calls", json={"target_ids": [999999]}).status_code == 400
+    gid = db.query_one("SELECT id FROM agents WHERE is_guardian=1")["id"]
+    assert client.put(f"/api/agents/{manager['id']}/calls", json={"target_ids": [gid]}).status_code == 400
+    assert {a["id"] for a in client.get(f"/api/agents/{manager['id']}/calls").json()} == {dev["id"]}
+
+    # несуществующий агент
+    assert client.get("/api/agents/999999/calls").status_code == 404
+    assert client.put("/api/agents/999999/calls", json={"target_ids": []}).status_code == 404
+
+
+def test_broker_agent_run_tools(client, monkeypatch):
+    import asyncio
+    import json
+
+    from app import broker_mcp, db, main, session_manager
+
+    pid = db.query_one("SELECT id FROM projects ORDER BY id LIMIT 1")["id"]
+    manager_id = db.execute(
+        "INSERT INTO agents(name, mode, model) VALUES('manager', 'primary', 'm/m')"
+    )
+    dev_id = db.execute("INSERT INTO agents(name, mode, model) VALUES('developer', 'primary', 'm/m')")
+    tester_id = db.execute("INSERT INTO agents(name, mode, model) VALUES('tester', 'primary', 'm/m')")
+    db.execute("INSERT INTO agent_calls(caller_id, target_id) VALUES(?,?),(?,?)",
+               (manager_id, dev_id, manager_id, tester_id))
+    sid = "caller-sess"
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status) "
+        "VALUES(?, ?, 'manager', ?, 't', 'manual', 'running')",
+        (sid, manager_id, pid),
+    )
+    ctx = {"session_id": sid, "project_id": pid}
+
+    # список доступных для вызова
+    r = asyncio.run(broker_mcp.call_tool("agent_call_list", {}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    names = {a["name"] for a in json.loads(r["content"][0]["text"])}
+    assert names == {"developer", "tester"}
+
+    spawned = []
+    monkeypatch.setattr(main, "spawn_start", lambda sid_, prompt: spawned.append((sid_, prompt)))
+
+    # fire-and-forget: сессия создаётся в проекте вызывающего
+    r = asyncio.run(broker_mcp.call_tool(
+        "agent_run", {"agent": "developer", "prompt": "напиши тест", "wait": False}, ctx
+    ))
+    assert not r["isError"], r["content"][0]["text"]
+    out = json.loads(r["content"][0]["text"])
+    assert out["status"] == "queued" and out["session_id"]
+    row = db.query_one("SELECT * FROM sessions WHERE id=?", (out["session_id"],))
+    assert row["agent_id"] == dev_id and row["source"] == "agent" and row["project_id"] == pid
+    assert spawned and spawned[0][0] == out["session_id"]
+
+    # вызов по id
+    r = asyncio.run(broker_mcp.call_tool(
+        "agent_run", {"agent": tester_id, "prompt": "прогони тесты", "wait": False}, ctx
+    ))
+    assert not r["isError"], r["content"][0]["text"]
+
+    # запрещённый агент
+    other_id = db.execute("INSERT INTO agents(name, mode, model) VALUES('other', 'primary', 'm/m')")
+    r = asyncio.run(broker_mcp.call_tool(
+        "agent_run", {"agent": other_id, "prompt": "x", "wait": False}, ctx
+    ))
+    assert r["isError"] and "не может вызывать" in r["content"][0]["text"]
+
+    # сам себя
+    r = asyncio.run(broker_mcp.call_tool(
+        "agent_run", {"agent": "manager", "prompt": "x", "wait": False}, ctx
+    ))
+    assert r["isError"] and "сам себя" in r["content"][0]["text"]
+
+    # неизвестный агент и пустой prompt
+    r = asyncio.run(broker_mcp.call_tool("agent_run", {"agent": "nope", "prompt": "x", "wait": False}, ctx))
+    assert r["isError"] and "не найден" in r["content"][0]["text"]
+    r = asyncio.run(broker_mcp.call_tool("agent_run", {"agent": "developer", "prompt": "  ", "wait": False}, ctx))
+    assert r["isError"] and "prompt обязателен" in r["content"][0]["text"]
+
+    # без сессии воркера
+    r = asyncio.run(broker_mcp.call_tool("agent_run", {"agent": "developer", "prompt": "x"}, {"project_id": pid}))
+    assert r["isError"] and "сессии воркера" in r["content"][0]["text"]
+
+    # wait=true дожидается завершения
+    done_sid = "done-sess"
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status, result_json) "
+        "VALUES(?, ?, 'developer', ?, 't', 'agent', 'completed', '{\"итог\": 42}')",
+        (done_sid, dev_id, pid),
+    )
+    monkeypatch.setattr(session_manager, "create_session", lambda *a, **k: done_sid)
+    r = asyncio.run(broker_mcp.call_tool("agent_run", {"agent": "developer", "prompt": "x"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    out = json.loads(r["content"][0]["text"])
+    assert out["status"] == "completed" and out["result"] == {"итог": 42}
+
+    # wait=true с таймаутом: сессия висит — возвращается note
+    monkeypatch.setattr(session_manager, "create_session", lambda *a, **k: "hang-sess")
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status) "
+        "VALUES('hang-sess', ?, 'developer', ?, 't', 'agent', 'running')",
+        (dev_id, pid),
+    )
+    monkeypatch.setattr(broker_mcp, "CALL_WAIT_MIN", 0)
+    monkeypatch.setattr(broker_mcp, "CALL_POLL", 0)
+    r = asyncio.run(broker_mcp.call_tool(
+        "agent_run", {"agent": "developer", "prompt": "x", "timeout": 1}, ctx
+    ))
+    assert not r["isError"], r["content"][0]["text"]
+    out = json.loads(r["content"][0]["text"])
+    assert out["status"] == "running" and "agent_status" in out["note"]
+
+    # agent_status: своя сессия и чужая (другой проект)
+    r = asyncio.run(broker_mcp.call_tool("agent_status", {"session_id": done_sid}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    assert json.loads(r["content"][0]["text"])["result"] == {"итог": 42}
+    foreign = "foreign-sess"
+    pid2 = db.execute("INSERT INTO projects(name) VALUES('другой проект')")
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, status) "
+        "VALUES(?, ?, 'x', ?, 't', 'manual', 'running')",
+        (foreign, dev_id, pid2),
+    )
+    r = asyncio.run(broker_mcp.call_tool("agent_status", {"session_id": foreign}, ctx))
+    assert r["isError"] and "другого проекта" in r["content"][0]["text"]
+    r = asyncio.run(broker_mcp.call_tool("agent_status", {"session_id": "nope"}, ctx))
+    assert r["isError"] and "не найдена" in r["content"][0]["text"]
+
+    # tools_for: инструменты вызовов только при настроенных вызовах
+    assert broker_mcp.TEAM_TOOLS <= {t["name"] for t in broker_mcp.tools_for(ctx)}
+    db.execute("DELETE FROM agent_calls WHERE caller_id=?", (manager_id,))
+    assert not (broker_mcp.TEAM_TOOLS & {t["name"] for t in broker_mcp.tools_for(ctx)})
 
 
 def test_render_workspace_injects_broker_mcp(tmp_path):

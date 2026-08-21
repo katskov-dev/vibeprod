@@ -9,7 +9,7 @@ import logging
 
 from fastapi import APIRouter, Header, Request, Response
 
-from ..broker_mcp import BROKER_TOOLS, call_tool
+from ..broker_mcp import tools_for, call_tool
 from .guardian import _check_auth, _dispatch, _json_response, _request_ctx
 
 log = logging.getLogger("vibeprod.broker-mcp")
@@ -26,7 +26,8 @@ async def mcp_endpoint(request: Request, authorization: str = Header(default="")
     except ValueError:
         return _json_response(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
     try:
-        responses = await _dispatch(body, _request_ctx(request), BROKER_TOOLS, call_tool)
+        ctx = _request_ctx(request)
+        responses = await _dispatch(body, ctx, tools_for(ctx), call_tool)
     except Exception as exc:
         log.exception("broker mcp dispatch")
         return _json_response(500, {"jsonrpc": "2.0", "id": None, "error": {"code": -32603, "message": f"Internal error: {exc}"}})

@@ -35,6 +35,10 @@ def init_db():
         acols = {r["name"] for r in conn.execute("PRAGMA table_info(agents)").fetchall()}
         if "variant" not in acols:
             conn.execute("ALTER TABLE agents ADD COLUMN variant TEXT")
+        if "memory" not in acols:
+            conn.execute("ALTER TABLE agents ADD COLUMN memory TEXT DEFAULT ''")
+        if "memory_enabled" not in acols:
+            conn.execute("ALTER TABLE agents ADD COLUMN memory_enabled INTEGER DEFAULT 1")
         pcols = {r["name"] for r in conn.execute("PRAGMA table_info(providers)").fetchall()}
         if "models_full" not in pcols:
             conn.execute("ALTER TABLE providers ADD COLUMN models_full TEXT")
@@ -78,6 +82,21 @@ def init_db():
                 "\"X-Broker-Url\": \"{env:VIBEPROD_BROKER_URL}\"}', "
                 "'mcp/playwright', 'vibeprod-playwright', 8932, 'vibeprod-mcp', 1)"
             )
+        if not conn.execute("SELECT id FROM mcp_catalog WHERE name='vision'").fetchone():
+            conn.execute(
+                "INSERT INTO mcp_catalog(name, description, kind, type, url, headers, "
+                "service_build_dir, service_container, service_port, service_network, builtin) "
+                "VALUES('vision', 'Анализ изображений моделью DeepSeek vision: описание картинок, "
+                "чтение текста со скриншотов, проверка вёрстки. Читает скриншоты playwright "
+                "из /vibeprod-shots. Ключ берётся из провайдера «deepseek» (страница «Провайдеры») "
+                "или DEEPSEEK_API_KEY в env брокера.', "
+                "'service', 'remote', "
+                "'http://vibeprod-playwright:8934/mcp', "
+                "'{\"X-Vibeprod-Project\": \"{env:VIBEPROD_PROJECT_ID}\", "
+                "\"X-Vibeprod-Token\": \"{env:VIBEPROD_FILE_TOKEN}\", "
+                "\"X-Broker-Url\": \"{env:VIBEPROD_BROKER_URL}\"}', "
+                "'mcp/playwright', 'vibeprod-playwright', 8934, 'vibeprod-mcp', 1)"
+            )
         if not conn.execute("SELECT id FROM mcp_catalog WHERE name='ssh'").fetchone():
             conn.execute(
                 "INSERT INTO mcp_catalog(name, description, kind, type, url, headers, "
@@ -108,6 +127,27 @@ def init_db():
                     "`![подпись](<ссылка>)` — она отобразится в интерфейсе.\n\n"
                     "Если нужно несколько скриншотов — повтори шаги для каждого, "
                     "используй понятные имена файлов.",
+                ),
+            )
+        if not conn.execute("SELECT id FROM skills WHERE name='vision-analyze'").fetchone():
+            conn.execute(
+                "INSERT INTO skills(name, description, body) VALUES('vision-analyze', "
+                "'Анализ скриншотов моделью DeepSeek vision (playwright + vision MCP)', ?)",
+                (
+                    "Анализ страницы/скриншота моделью DeepSeek vision.\n\n"
+                    "1. Сделай скриншот через инструмент playwright MCP `browser_take_screenshot` "
+                    "с filename внутри `/vibeprod-shots/`, например `/vibeprod-shots/page.png` "
+                    "(если указать имя без пути, файл окажется в `/vibeprod-shots`).\n"
+                    "2. Проанализируй его инструментом vision MCP `vision_analyze`: "
+                    "image — путь из шага 1 (например `/vibeprod-shots/page.png`), "
+                    "prompt — что проверить: «есть ли на странице ошибки?», "
+                    "«прочитай текст в шапке», «какого цвета кнопка?». Для скорости можно "
+                    "передать detail=\"low\".\n"
+                    "3. При необходимости приложи скриншот к ответу: загрузи его инструментом "
+                    "files MCP `upload_file` и вставь markdown-ссылку.\n\n"
+                    "Если vision_analyze вернул ошибку «DeepSeek vision не настроен» — "
+                    "сообщи пользователю, что нужно добавить ключ deepseek на странице «Провайдеры» "
+                    "или задать DEEPSEEK_API_KEY в окружении брокера.",
                 ),
             )
         if not conn.execute("SELECT id FROM projects LIMIT 1").fetchone():
@@ -152,7 +192,7 @@ def init_db():
         )
         guardian = conn.execute("SELECT id FROM agents WHERE is_guardian=1 LIMIT 1").fetchone()
         if guardian:
-            for name in ("playwright", "files", "ssh"):
+            for name in ("playwright", "files", "vision", "ssh"):
                 entry = conn.execute("SELECT * FROM mcp_catalog WHERE name=?", (name,)).fetchone()
                 if entry and not conn.execute(
                     "SELECT id FROM agent_mcp WHERE agent_id=? AND name=?", (guardian[0], name)
