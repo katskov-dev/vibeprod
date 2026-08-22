@@ -106,7 +106,7 @@ function openImageLightbox(src, name = '') {
     }
   } catch {}
   root.innerHTML = `
-    <div class="fixed inset-0 bg-black/80 z-50 flex flex-col" id="imgbox">
+    <div class="fixed inset-0 bg-black/80 z-[100] flex flex-col" id="imgbox">
       <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-neutral-900/95 border-b border-neutral-800 shrink-0" id="imgbox-bar">
         <div class="text-sm text-neutral-300 truncate">${esc(name || new URL(src, window.location.origin).hostname)}</div>
         <div class="flex items-center gap-2 shrink-0">
@@ -2687,7 +2687,7 @@ function openMarkdownEditor(f, abs) {
   const dirty = () => content !== original;
   root.innerHTML = `
     <div class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6" id="file-preview-overlay">
-      <div class="w-full max-w-4xl bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+      <div class="w-full max-w-4xl bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl flex flex-col h-[85vh] max-h-[90vh]">
         <div class="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800 gap-3">
           <div class="mono text-sm text-sky-300 truncate min-w-0 flex-1">${esc(f.name)}</div>
           <div class="flex items-center gap-2 shrink-0">
