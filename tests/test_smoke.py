@@ -482,6 +482,148 @@ def test_session_needs_restart_logic(client, monkeypatch):
     assert session_manager.session_needs_restart("cont-3") is False
 
 
+# ---------- квота параллельных сессий и idle-тиры ----------
+
+
+def _seed_running_session(sid):
+    from app import db
+
+    pid = db.query_one("SELECT id FROM projects ORDER BY id LIMIT 1")["id"]
+    aid = db.query_one("SELECT id FROM agents WHERE is_guardian=0 ORDER BY id LIMIT 1")["id"]
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, prompt, status, model, "
+        "opencode_session_id, container_id, last_activity) "
+        "VALUES(?, ?, 'general', ?, 'Активная', 'manual', 'задача', 'running', 'm/m', 'ocs', 'c', datetime('now'))",
+        (sid, aid, pid),
+    )
+    return sid
+
+
+def test_reserve_start_slot_respects_quota(client, monkeypatch):
+    from app import db
+    from app import session_manager
+
+    monkeypatch.setattr(session_manager, "MAX_CONCURRENT", 2)
+    _seed_running_session("q-act-1")
+    _seed_running_session("q-act-2")
+    sid = session_manager.create_session(
+        db.query_one("SELECT id FROM agents WHERE is_guardian=0 ORDER BY id LIMIT 1")["id"],
+        "В очереди",
+        "промпт",
+    )
+    assert db.query_one("SELECT status FROM sessions WHERE id=?", (sid,))["status"] == "queued"
+
+    assert asyncio.run(session_manager._reserve_start_slot(sid)) is False
+    assert db.query_one("SELECT status FROM sessions WHERE id=?", (sid,))["status"] == "queued"
+
+    db.execute("UPDATE sessions SET status='failed' WHERE id='q-act-1'")
+    assert asyncio.run(session_manager._reserve_start_slot(sid)) is True
+    row = db.query_one("SELECT status, pending_prompt FROM sessions WHERE id=?", (sid,))
+    assert row["status"] == "starting" and row["pending_prompt"] == 0
+
+
+def test_dispatch_queued_starts_waiting_sessions(client, monkeypatch):
+    from app import db
+    from app import session_manager
+
+    monkeypatch.setattr(session_manager, "MAX_CONCURRENT", 2)
+    _seed_running_session("q-act-1")
+    sid = session_manager.create_session(
+        db.query_one("SELECT id FROM agents WHERE is_guardian=0 ORDER BY id LIMIT 1")["id"],
+        "В очереди",
+        "промпт",
+    )
+    started = []
+
+    async def fake_start(s):
+        started.append(s)
+
+    monkeypatch.setattr(session_manager, "start_session", fake_start)
+
+    async def run():
+        await session_manager._dispatch_queued()
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+    assert started == [sid]
+
+
+def test_continue_session_at_cap_goes_queued(client, monkeypatch):
+    from app import db
+    from app import session_manager
+
+    monkeypatch.setattr(session_manager, "MAX_CONCURRENT", 1)
+    _seed_running_session("q-act-1")
+    _seed_finished_session(sid="q-cont", status="expired")
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: False)
+
+    async def run():
+        await session_manager.continue_session("q-cont", "продолжим")
+
+    asyncio.run(run())
+    row = db.query_one("SELECT status, prompt, pending_prompt FROM sessions WHERE id='q-cont'")
+    assert row["status"] == "queued"
+    assert row["prompt"] == "продолжим"
+    assert row["pending_prompt"] == 1
+
+
+def test_restart_session_clears_pending_prompt(client, monkeypatch):
+    from app import db
+    from app import session_manager
+
+    started = {}
+
+    async def fake_start(sid, initial_prompt=None):
+        started.update(sid=sid, prompt=initial_prompt)
+
+    monkeypatch.setattr(session_manager, "start_session", fake_start)
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: False)
+    monkeypatch.setattr(session_manager, "kill_worker", lambda *a, **k: None)
+    _seed_finished_session(sid="q-rest", status="completed")
+    db.execute("UPDATE sessions SET pending_prompt=1, prompt='старый' WHERE id='q-rest'")
+
+    asyncio.run(session_manager.restart_session("q-rest"))
+    assert started == {"sid": "q-rest", "prompt": None}
+    assert db.query_one("SELECT pending_prompt FROM sessions WHERE id='q-rest'")["pending_prompt"] == 0
+
+
+def test_suspend_worker_pauses_idle_container(client, monkeypatch):
+    from app import db
+    from app import session_manager
+
+    paused = []
+
+    monkeypatch.setattr(session_manager, "container_exists", lambda cid: True)
+    monkeypatch.setattr(session_manager, "container_status", lambda cid: "running")
+    monkeypatch.setattr(session_manager, "pause_worker", lambda cid: paused.append(cid))
+    _seed_running_session("q-susp")
+    row = db.query_one("SELECT * FROM sessions WHERE id='q-susp'")
+
+    asyncio.run(session_manager._suspend_worker(row))
+    assert paused == ["c"]
+
+    # уже замороженный контейнер повторно не паузится
+    monkeypatch.setattr(session_manager, "container_status", lambda cid: "paused")
+    asyncio.run(session_manager._suspend_worker(row))
+    assert paused == ["c"]
+
+
+def test_touch_session_throttles_last_activity(client, monkeypatch):
+    from app import db
+    from app import session_manager
+
+    _seed_running_session("q-touch")
+    session_manager._touch_at.pop("q-touch", None)
+    monkeypatch.setattr(session_manager.time, "monotonic", lambda: 100.0)
+    db.execute("UPDATE sessions SET last_activity='2000-01-01 00:00:00' WHERE id='q-touch'")
+    session_manager.touch_session("q-touch")
+    assert db.query_one("SELECT last_activity FROM sessions WHERE id='q-touch'")["last_activity"] != "2000-01-01 00:00:00"
+
+    db.execute("UPDATE sessions SET last_activity='2000-01-01 00:00:00' WHERE id='q-touch'")
+    session_manager.touch_session("q-touch")
+    assert db.query_one("SELECT last_activity FROM sessions WHERE id='q-touch'")["last_activity"] == "2000-01-01 00:00:00"
+
+
 def test_guardian_ssh_tools(client):
     import asyncio
     import json
@@ -795,6 +937,152 @@ def test_broker_issue_tools(client, monkeypatch):
     assert not r["isError"]
     r = asyncio.run(broker_mcp.call_tool("issue_delete", {"id": created["id"]}, ctx))
     assert r["isError"] and "не найден" in r["content"][0]["text"]
+
+
+def test_issue_priority_assignee_comments(client):
+    from app import db
+
+    aid = db.query_one("SELECT id FROM agents WHERE is_guardian=0 ORDER BY id LIMIT 1")["id"]
+    aname = db.query_one("SELECT name FROM agents WHERE id=?", (aid,))["name"]
+
+    r = client.post("/api/issues", json={"title": "Критичный баг", "priority": "critical", "assignee_id": aid, "project_id": 1})
+    assert r.status_code == 200, r.text
+    i = r.json()
+    assert i["priority"] == "critical" and i["assignee_id"] == aid and i["assignee_name"] == aname
+    assert i["comments"] == []
+
+    # исполнитель по имени агента
+    r = client.post("/api/issues", json={"title": "По имени", "assignee_id": aname, "project_id": 1})
+    assert r.json()["assignee_id"] == aid
+
+    # фильтры по приоритету и исполнителю
+    assert [x["title"] for x in client.get("/api/issues?project_id=1&priority=critical").json()] == ["Критичный баг"]
+    assert [x["title"] for x in client.get(f"/api/issues?project_id=1&assignee_id={aid}").json()] == ["По имени", "Критичный баг"]
+
+    # новые статусы
+    r = client.put(f"/api/issues/{i['id']}", json={"status": "review"})
+    assert r.json()["status"] == "review"
+    assert client.post("/api/issues", json={"title": "cancelled", "status": "cancelled", "project_id": 1}).json()["status"] == "cancelled"
+
+    # комментарии
+    assert client.post("/api/issues/999999/comments", json={"text": "x"}).status_code == 404
+    assert client.post(f"/api/issues/{i['id']}/comments", json={"text": ""}).status_code == 400
+    c = client.post(f"/api/issues/{i['id']}/comments", json={"text": "проверяю", "agent_name": aname}).json()
+    assert c["text"] == "проверяю" and c["agent_name"] == aname
+    listed = client.get("/api/issues?project_id=1&priority=critical").json()
+    assert [x["text"] for x in listed[0]["comments"]] == ["проверяю"]
+
+    # комментарий можно добавить прямо в update
+    client.put(f"/api/issues/{i['id']}", json={"comment": "ещё коммент"})
+    assert len(client.get(f"/api/issues/{i['id']}/comments").json()) == 2
+
+    # валидация
+    assert client.post("/api/issues", json={"title": "x", "priority": "wat"}).status_code == 400
+    assert client.post("/api/issues", json={"title": "x", "assignee_id": 999999}).status_code == 400
+    assert client.put(f"/api/issues/{i['id']}", json={"priority": "wat"}).status_code == 400
+
+    # удаление каскадно удаляет комментарии
+    client.delete(f"/api/issues/{i['id']}")
+    assert client.get(f"/api/issues/{i['id']}/comments").status_code == 404
+
+
+def test_broker_issue_own_only(client):
+    import asyncio
+    import json
+
+    from app import broker_mcp, db
+
+    aid = db.execute(
+        "INSERT INTO agents(name, mode, model, issues_own_only) VALUES('solo', 'primary', 'm/m', 1)"
+    )
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, status) "
+        "VALUES('sess-solo', ?, 'solo', 1, 'running')",
+        (aid,),
+    )
+    ctx = {"session_id": "sess-solo", "project_id": 1}
+
+    # создаёт issue и автоматически становится исполнителем
+    r = asyncio.run(broker_mcp.call_tool("issue_create", {"title": "моя задача", "priority": "high"}, ctx))
+    created = json.loads(r["content"][0]["text"])
+    assert created["assignee_id"] == aid and created["created_by"] == "solo"
+    assert created["priority"] == "high"
+
+    # чужая задача
+    other_aid = db.query_one("SELECT id FROM agents WHERE is_guardian=0 AND id<>?", (aid,))["id"]
+    other_id = db.execute(
+        "INSERT INTO issues(project_id, title, status, priority, assignee_id) "
+        "VALUES(1, 'чужая', 'open', 'medium', ?)",
+        (other_aid,),
+    )
+
+    # list видит только свои
+    r = asyncio.run(broker_mcp.call_tool("issue_list", {}, ctx))
+    titles = [x["title"] for x in json.loads(r["content"][0]["text"])]
+    assert "моя задача" in titles and "чужая" not in titles
+
+    # чужие нельзя менять/комментировать/удалять
+    for name, args in (("issue_update", {"id": other_id, "status": "done"}),
+                       ("issue_comment", {"id": other_id, "text": "привет"}),
+                       ("issue_delete", {"id": other_id})):
+        r = asyncio.run(broker_mcp.call_tool(name, args, ctx))
+        assert r["isError"] and "только свои" in r["content"][0]["text"], name
+
+    # комментарий к своей — с именем агента
+    r = asyncio.run(broker_mcp.call_tool("issue_comment", {"id": created["id"], "text": "делаю"}, ctx))
+    assert json.loads(r["content"][0]["text"])["agent_name"] == "solo"
+
+    # исполнителем своей можно назначить только себя
+    r = asyncio.run(broker_mcp.call_tool("issue_update", {"id": created["id"], "assignee": other_aid}, ctx))
+    assert r["isError"] and "только свои" in r["content"][0]["text"]
+
+    # обычный агент видит все issues проекта
+    db.execute("UPDATE agents SET issues_own_only=0 WHERE id=?", (aid,))
+    r = asyncio.run(broker_mcp.call_tool("issue_list", {}, ctx))
+    titles = [x["title"] for x in json.loads(r["content"][0]["text"])]
+    assert "чужая" in titles and "моя задача" in titles
+
+    # настройка сохраняется через API
+    a = client.get(f"/api/agents/{aid}").json()
+    assert a["issues_own_only"] == 0
+    client.put(f"/api/agents/{aid}", json={"issues_own_only": True})
+    assert db.query_one("SELECT issues_own_only FROM agents WHERE id=?", (aid,))["issues_own_only"] == 1
+
+
+def test_dashboard_aggregates(client):
+    from app import db
+
+    db.execute(
+        "INSERT INTO issues(project_id, title, status, priority) VALUES(1, 'критично', 'open', 'critical')"
+    )
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, status, title, created_at, finished_at) "
+        "VALUES('dash-1', NULL, 'test', 1, 'completed', 'задача', datetime('now'), datetime('now'))"
+    )
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, status, title, error, created_at, finished_at) "
+        "VALUES('dash-2', NULL, 'test', 1, 'failed', 'упала', 'err', datetime('now'), datetime('now'))"
+    )
+    db.execute(
+        "INSERT INTO telegram_config(project_id, token, enabled, connected) VALUES(1, 't', 1, 0)"
+    )
+
+    d = client.get("/api/dashboard?project_id=1").json()
+    assert d["issues"]["by_status"]["open"] >= 1
+    assert d["issues"]["critical_open"] >= 1
+    assert d["issues"]["total"] >= 1
+    assert any(s["id"] == "dash-2" for s in d["failed_sessions"])
+    assert any(f["id"] == "dash-1" for f in d["feed"])
+    assert any(f["id"] == "dash-2" for f in d["feed"])
+    assert len(d["activity"]) == 14
+    assert d["activity"][-1]["total"] >= 2
+    assert isinstance(d["agents"], list) and isinstance(d["providers"], list)
+    assert "schedules_total" in d and "triggers" in d
+    assert d["channel"] is not None and "connected" in d["channel"]
+    assert isinstance(d["files"], list)
+
+    d2 = client.get("/api/dashboard").json()
+    assert d2["channel"] is None and d2["files"] == []
 
 
 # ---------- уведомления в каналы ----------

@@ -27,7 +27,19 @@ services:
       # Только тег (без @sha256: digest невалиден как тег сборки в docker SDK).
       # Digest базового образа закреплён в worker/Dockerfile (FROM ...@sha256).
       - VIBEPROD_OPENCODE_IMAGE=${VIBEPROD_OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.18.18}
-      - VIBEPROD_IDLE_TTL_MIN=${VIBEPROD_IDLE_TTL_MIN:-120}
+      # Двухуровневый idle: пауза контейнера после SUSPEND_IDLE минут простоя
+      # (0 CPU), убийство после IDLE_TTL. История сессии лежит в docker-томе,
+      # поэтому воркер поднимается заново при следующем сообщении.
+      - VIBEPROD_IDLE_TTL_MIN=${VIBEPROD_IDLE_TTL_MIN:-60}
+      - VIBEPROD_SUSPEND_IDLE_MIN=${VIBEPROD_SUSPEND_IDLE_MIN:-15}
+      # Квота параллельно живущих воркеров: сверх лимита сессии ждут в очереди
+      # (status=queued) и стартуют по мере освобождения. 0 — без ограничений.
+      - VIBEPROD_MAX_CONCURRENT_SESSIONS=${VIBEPROD_MAX_CONCURRENT_SESSIONS:-0}
+      # Ресурсы одного воркера: память, swap (простаивающие страницы на диск),
+      # лимит процессов. См. .env.example.
+      - VIBEPROD_WORKER_MEM=${VIBEPROD_WORKER_MEM:-384m}
+      - VIBEPROD_WORKER_SWAP=${VIBEPROD_WORKER_SWAP:-1024m}
+      - VIBEPROD_WORKER_PIDS=${VIBEPROD_WORKER_PIDS:-512}
       - VIBEPROD_PORT=${VIBEPROD_PORT:-8000}
       - VIBEPROD_BIND=${VIBEPROD_BIND:-127.0.0.1}
       # Хост-путь к data: docker-демон резолвит bind-mount'ы воркеров на ХОСТЕ,

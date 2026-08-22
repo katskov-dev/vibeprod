@@ -24,16 +24,35 @@ _LIST_COLUMNS = (
 
 
 @router.get("/sessions")
-def list_sessions(project_id: int = None):
+def list_sessions(project_id: int = None, page: int = None, page_size: int = None):
+    where = "WHERE s.project_id=? " if project_id is not None else ""
+    params = (project_id,) if project_id is not None else ()
+    if page is not None:
+        # Паджинация: {items, total, page, page_size, pages}. Без page
+        # отдаётся полный список, как раньше.
+        page = max(1, page)
+        page_size = min(max(page_size or 25, 1), 100)
+        total = db.query_one(f"SELECT COUNT(*) AS n FROM sessions s {where}", params)["n"]
+        sql = (
+            f"SELECT {_LIST_COLUMNS} FROM sessions s "
+            "LEFT JOIN projects p ON p.id=s.project_id "
+            f"{where}"
+            "ORDER BY s.created_at DESC LIMIT ? OFFSET ?"
+        )
+        rows = db.query(sql, params + (page_size, (page - 1) * page_size))
+        return {
+            "items": [_session_dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": max(1, -(-total // page_size)),
+        }
     sql = (
         f"SELECT {_LIST_COLUMNS} FROM sessions s "
         "LEFT JOIN projects p ON p.id=s.project_id "
+        f"{where}"
+        "ORDER BY s.created_at DESC"
     )
-    params = ()
-    if project_id is not None:
-        sql += "WHERE s.project_id=? "
-        params = (project_id,)
-    sql += "ORDER BY s.created_at DESC"
     return [_session_dict(r) for r in db.query(sql, params)]
 
 

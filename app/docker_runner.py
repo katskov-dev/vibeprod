@@ -23,6 +23,13 @@ WORKER_HASH_FILE = DATA_DIR / "worker_image.hash"
 
 MCP_NETWORK = "vibeprod-mcp"
 
+# Ресурсы воркера: лимит памяти по умолчанию занижен, чтобы на слабом железе
+# параллельно жило много контейнеров. Swap позволяет простаивающим страницам
+# уходить на диск, pids_limit — защита от fork-бомб агента.
+WORKER_MEM = os.environ.get("VIBEPROD_WORKER_MEM") or "384m"
+WORKER_SWAP = os.environ.get("VIBEPROD_WORKER_SWAP") or "1024m"
+WORKER_PIDS = int(os.environ.get("VIBEPROD_WORKER_PIDS") or 512)
+
 # Подсказка для диагностики «opencode serve не поднялся»: чаще всего это
 # сеть (брокер в bridge-сети не видит порт воркера на 127.0.0.1) или
 # недоступный docker-демон.
@@ -136,7 +143,9 @@ def run_worker(session_id, host_ws_dir, storage_name, auth_token, extra_provider
         labels={LABEL: session_id},
         name=f"vibeprod-{session_id[:12]}",
         network=MCP_NETWORK,
-        mem_limit=os.environ.get("VIBEPROD_WORKER_MEM") or "1024m",
+        mem_limit=WORKER_MEM,
+        memswap_limit=WORKER_SWAP,
+        pids_limit=WORKER_PIDS,
         extra_hosts={"host.docker.internal": "host-gateway"},
     )
     return container.id
@@ -169,10 +178,42 @@ def container_logs(container_id, tail=60):
         return ""
 
 
+def container_status(container_id):
+    """Статус контейнера из docker-демона (running/paused/exited/…)."""
+    try:
+        return _client().containers.get(container_id).status
+    except docker.errors.NotFound:
+        return None
+
+
+def pause_worker(container_id):
+    """Замораживает процессы воркера: 0 CPU, память остаётся в RAM."""
+    _client().containers.get(container_id).pause()
+
+
+def unpause_worker(container_id):
+    _client().containers.get(container_id).unpause()
+
+
+def ensure_running(container_id):
+    """Снимает паузу, если воркер был заморожен по idle-тир 1."""
+    try:
+        container = _client().containers.get(container_id)
+        if container.status == "paused":
+            container.unpause()
+    except docker.errors.NotFound:
+        pass
+
+
 def kill_worker(container_id, storage_name=None, remove_volume=False):
     if container_id:
         try:
             container = _client().containers.get(container_id)
+            if container.status == "paused":
+                try:
+                    container.unpause()
+                except Exception:
+                    pass
             container.remove(force=True)
         except docker.errors.NotFound:
             pass

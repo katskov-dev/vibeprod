@@ -221,7 +221,8 @@ def h_memory_set(args, ctx):
 
 # ---------- issues ----------
 
-ISSUE_STATUSES = ("open", "in_progress", "done")
+ISSUE_STATUSES = ("open", "in_progress", "review", "done", "cancelled")
+ISSUE_PRIORITIES = ("low", "medium", "high", "critical")
 
 
 def _issue_project(ctx):
@@ -229,6 +230,18 @@ def _issue_project(ctx):
     if pid is None:
         raise ToolError("сессия не привязана к проекту — issue некуда записать")
     return pid
+
+
+def _issue_agent(ctx):
+    """Агент текущей сессии (id, имя, видит ли только свои issues)."""
+    sid = ctx.get("session_id")
+    if not sid:
+        return None
+    return db.query_one(
+        "SELECT s.agent_id, a.name, a.issues_own_only FROM sessions s "
+        "JOIN agents a ON a.id=s.agent_id WHERE s.id=?",
+        (sid,),
+    )
 
 
 def _tags_in(raw):
@@ -239,9 +252,44 @@ def _tags_in(raw):
     return [t for t in parts if t][:10]
 
 
+def _issue_assignee(raw):
+    """Исполнитель по id или имени агента; None — без исполнителя."""
+    if raw is None:
+        return None
+    if isinstance(raw, int) or (isinstance(raw, str) and raw.strip().isdigit()):
+        row = db.query_one("SELECT id FROM agents WHERE id=? AND is_guardian=0", (int(raw),))
+    else:
+        row = db.query_one("SELECT id FROM agents WHERE name=? AND is_guardian=0", (str(raw).strip(),))
+    if not row:
+        raise ToolError(f"исполнитель не найден (id или имя агента): {raw}")
+    return row["id"]
+
+
+def _issue_own_check(me, issue):
+    """При включённой настройке «видит только свои issues» — доступ только к своим."""
+    if not me or not me["issues_own_only"]:
+        return
+    if not issue.get("assignee_id") or int(issue["assignee_id"]) != int(me["agent_id"]):
+        raise ToolError(
+            "настройка «видит только свои issues»: этот issue назначен другому исполнителю"
+        )
+
+
+def _issue_row(iid):
+    return db.query_one(
+        "SELECT i.*, a.name AS assignee_name FROM issues i "
+        "LEFT JOIN agents a ON a.id=i.assignee_id WHERE i.id=?",
+        (iid,),
+    )
+
+
 def _issue_out(row):
     d = dict(row)
     d["tags"] = [t for t in str(d.get("tags") or "").split(",") if t]
+    d["comments"] = db.query(
+        "SELECT id, agent_name, text, created_at FROM issue_comments WHERE issue_id=? ORDER BY id",
+        (d["id"],),
+    )
     return d
 
 
@@ -252,29 +300,57 @@ def h_issue_create(args, ctx):
     status = args.get("status") or "open"
     if status not in ISSUE_STATUSES:
         raise ToolError(f"status: один из {', '.join(ISSUE_STATUSES)}")
+    priority = args.get("priority") or "medium"
+    if priority not in ISSUE_PRIORITIES:
+        raise ToolError(f"priority: один из {', '.join(ISSUE_PRIORITIES)}")
     tags = ",".join(_tags_in(args.get("tags")))
+    me = _issue_agent(ctx)
+    assignee_id = _issue_assignee(args.get("assignee"))
+    if me and me["issues_own_only"]:
+        if assignee_id is not None and int(assignee_id) != int(me["agent_id"]):
+            raise ToolError("настройка «видит только свои issues»: исполнителем можно назначить только себя")
+        assignee_id = me["agent_id"]
+    created_by = me["name"] if me else "agent"
     iid = db.execute(
-        "INSERT INTO issues(project_id, title, description, status, tags, created_by) VALUES(?,?,?,?,?, 'agent')",
-        (_issue_project(ctx), title, args.get("description") or "", status, tags),
+        "INSERT INTO issues(project_id, title, description, status, priority, assignee_id, tags, created_by) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (_issue_project(ctx), title, args.get("description") or "", status, priority, assignee_id, tags, created_by),
     )
-    return _issue_out(db.query_one("SELECT * FROM issues WHERE id=?", (iid,)))
+    return _issue_out(_issue_row(iid))
 
 
 def h_issue_list(args, ctx):
     pid = _issue_project(ctx)
-    sql = "SELECT * FROM issues WHERE project_id=? AND 1=1"
+    sql = ("SELECT i.*, a.name AS assignee_name FROM issues i "
+           "LEFT JOIN agents a ON a.id=i.assignee_id WHERE i.project_id=? AND 1=1")
     params = [pid]
+    me = _issue_agent(ctx)
+    if me and me["issues_own_only"]:
+        sql += " AND i.assignee_id=?"
+        params.append(me["agent_id"])
     if args.get("status") in ISSUE_STATUSES:
-        sql += " AND status=?"
+        sql += " AND i.status=?"
         params.append(args["status"])
+    if args.get("priority") in ISSUE_PRIORITIES:
+        sql += " AND i.priority=?"
+        params.append(args["priority"])
+    if args.get("assignee"):
+        ref = args["assignee"]
+        if str(ref).strip() == "me" and me:
+            sql += " AND i.assignee_id=?"
+            params.append(me["agent_id"])
+        else:
+            sql += " AND i.assignee_id=?"
+            params.append(_issue_assignee(ref))
     if args.get("tag"):
-        sql += " AND (',' || tags || ',') LIKE ?"
+        sql += " AND (',' || i.tags || ',') LIKE ?"
         params.append(f"%,{str(args['tag']).strip()},%")
     if args.get("q"):
         like = f"%{str(args['q']).strip()}%"
-        sql += " AND (title LIKE ? OR description LIKE ?)"
+        sql += " AND (i.title LIKE ? OR i.description LIKE ?)"
         params.extend((like, like))
-    sql += " ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END, id DESC"
+    order = " ".join(f"WHEN '{s}' THEN {i}" for i, s in enumerate(ISSUE_STATUSES))
+    sql += f" ORDER BY CASE i.status {order} ELSE 9 END, i.id DESC"
     rows = db.query(sql, params)
     limit = args.get("limit")
     if limit is not None:
@@ -294,21 +370,58 @@ def h_issue_update(args, ctx):
     row = db.query_one("SELECT * FROM issues WHERE id=?", (iid,))
     if not row:
         raise ToolError(f"issue {iid} не найден")
+    me = _issue_agent(ctx)
+    _issue_own_check(me, row)
     merged = {**row, **args}
-    if str(merged.get("status") or "open") not in ISSUE_STATUSES:
+    status = merged.get("status") or row["status"]
+    if status not in ISSUE_STATUSES:
         raise ToolError(f"status: один из {', '.join(ISSUE_STATUSES)}")
+    priority = merged.get("priority") or row["priority"]
+    if priority not in ISSUE_PRIORITIES:
+        raise ToolError(f"priority: один из {', '.join(ISSUE_PRIORITIES)}")
     tags = ",".join(_tags_in(args.get("tags"))) if args.get("tags") is not None else row["tags"]
+    if "assignee" in args:
+        assignee_id = _issue_assignee(args.get("assignee"))
+        if me and me["issues_own_only"] and (assignee_id is None or int(assignee_id) != int(me["agent_id"])):
+            raise ToolError("настройка «видит только свои issues»: исполнителем можно назначить только себя")
+    else:
+        assignee_id = row["assignee_id"]
     db.execute(
-        "UPDATE issues SET title=?, description=?, status=?, tags=?, updated_at=datetime('now') WHERE id=?",
+        "UPDATE issues SET title=?, description=?, status=?, priority=?, assignee_id=?, tags=?, "
+        "updated_at=datetime('now') WHERE id=?",
         (
             (merged.get("title") or "").strip() or row["title"],
             merged.get("description") or row["description"],
-            merged.get("status") or row["status"],
+            status,
+            priority,
+            assignee_id,
             tags,
             iid,
         ),
     )
-    return _issue_out(db.query_one("SELECT * FROM issues WHERE id=?", (iid,)))
+    return _issue_out(_issue_row(iid))
+
+
+def h_issue_comment(args, ctx):
+    iid = args.get("id")
+    try:
+        iid = int(iid)
+    except (TypeError, ValueError):
+        raise ToolError("id: целое число")
+    row = db.query_one("SELECT * FROM issues WHERE id=?", (iid,))
+    if not row:
+        raise ToolError(f"issue {iid} не найден")
+    me = _issue_agent(ctx)
+    _issue_own_check(me, row)
+    text = (args.get("text") or "").strip()
+    if not text:
+        raise ToolError("text обязателен")
+    cid = db.execute(
+        "INSERT INTO issue_comments(issue_id, agent_id, agent_name, text) VALUES(?,?,?,?)",
+        (iid, me["agent_id"] if me else None, me["name"] if me else "", text),
+    )
+    db.execute("UPDATE issues SET updated_at=datetime('now') WHERE id=?", (iid,))
+    return db.query_one("SELECT * FROM issue_comments WHERE id=?", (cid,))
 
 
 def h_issue_delete(args, ctx):
@@ -317,8 +430,11 @@ def h_issue_delete(args, ctx):
         iid = int(iid)
     except (TypeError, ValueError):
         raise ToolError("id: целое число")
-    if not db.query_one("SELECT id FROM issues WHERE id=?", (iid,)):
+    row = db.query_one("SELECT * FROM issues WHERE id=?", (iid,))
+    if not row:
         raise ToolError(f"issue {iid} не найден")
+    me = _issue_agent(ctx)
+    _issue_own_check(me, row)
     db.execute("DELETE FROM issues WHERE id=?", (iid,))
     return {"ok": True}
 
@@ -534,6 +650,7 @@ HANDLERS = {
     "issue_create": h_issue_create,
     "issue_list": h_issue_list,
     "issue_update": h_issue_update,
+    "issue_comment": h_issue_comment,
     "issue_delete": h_issue_delete,
     "file_download": h_file_download,
     "agent_call_list": h_agent_call_list,
@@ -591,21 +708,28 @@ BROKER_TOOLS = [
     ),
     _tool(
         "issue_create",
-        "Завести issue в трекере задач проекта (бэклог Vibeprod): заголовок, описание, статус, теги. "
-        "Пишите сюда задачи, которые вы нашли или сделали — пользователь увидит их в интерфейсе.",
+        "Завести issue в трекере задач проекта (бэклог Vibeprod): заголовок, описание, "
+        "статус, приоритет, исполнитель, теги. Пишите сюда задачи, которые вы нашли или "
+        "сделали — пользователь увидит их в интерфейсе.",
         {
             "title": _prop("string", "название issue (кратко и по делу)"),
             "description": _prop("string", "детальное описание (контекст, шаги, что сделано/нужно сделать)"),
-            "status": _prop("string", "open | in_progress | done (по умолчанию open)"),
+            "status": _prop("string", "open | in_progress | review | done | cancelled (по умолчанию open)"),
+            "priority": _prop("string", "low | medium | high | critical (по умолчанию medium)"),
+            "assignee": _prop("string", "исполнитель: id или имя агента (необязательно)"),
             "tags": _prop("array", "список тегов, например [\"баг\", \"рефакторинг\"]"),
         },
         ["title"],
     ),
     _tool(
         "issue_list",
-        "Список issues проекта с фильтрами: status (open/in_progress/done), tag, q (поиск по названию и описанию).",
+        "Список issues проекта с фильтрами: status (open/in_progress/review/done/cancelled), "
+        "priority (low/medium/high/critical), assignee (id, имя агента или 'me'), tag, "
+        "q (поиск по названию и описанию). У каждого issue есть комментарии.",
         {
             "status": _prop("string", "фильтр по статусу (необязательно)"),
+            "priority": _prop("string", "фильтр по приоритету (необязательно)"),
+            "assignee": _prop("string", "фильтр по исполнителю: id, имя агента или 'me' (необязательно)"),
             "tag": _prop("string", "фильтр по тегу (необязательно)"),
             "q": _prop("string", "поиск по названию и описанию (необязательно)"),
             "limit": _prop("integer", "сколько вернуть (по умолчанию все, максимум 100)"),
@@ -614,15 +738,28 @@ BROKER_TOOLS = [
     ),
     _tool(
         "issue_update",
-        "Обновить issue: заголовок, описание, статус, теги (меняются только переданные поля).",
+        "Обновить issue: заголовок, описание, статус, приоритет, исполнитель, теги "
+        "(меняются только переданные поля).",
         {
             "id": _prop("integer", "id issue"),
             "title": _prop("string", "новое название"),
             "description": _prop("string", "новое описание"),
-            "status": _prop("string", "open | in_progress | done"),
+            "status": _prop("string", "open | in_progress | review | done | cancelled"),
+            "priority": _prop("string", "low | medium | high | critical"),
+            "assignee": _prop("string", "исполнитель: id или имя агента (null/пусто — снять исполнителя)"),
             "tags": _prop("array", "новый список тегов (заменяет старые)"),
         },
         ["id"],
+    ),
+    _tool(
+        "issue_comment",
+        "Добавить комментарий к issue (текст и имя агента, который добавил, сохраняются "
+        "и видны в интерфейсе). Используйте, чтобы сообщить прогресс или вопросы по задаче.",
+        {
+            "id": _prop("integer", "id issue"),
+            "text": _prop("string", "текст комментария"),
+        },
+        ["id", "text"],
     ),
     _tool(
         "issue_delete",

@@ -38,7 +38,8 @@ else
     echo "VIBEPROD_LOGIN=$VIBEPROD_LOGIN"
     echo "VIBEPROD_PASSWORD=$VIBEPROD_PASSWORD"
     echo "VIBEPROD_TZ=${VIBEPROD_TZ:-Europe/Moscow}"
-    echo "VIBEPROD_IDLE_TTL_MIN=120"
+    echo "VIBEPROD_IDLE_TTL_MIN=${VIBEPROD_IDLE_TTL_MIN:-60}"
+    echo "VIBEPROD_SUSPEND_IDLE_MIN=${VIBEPROD_SUSPEND_IDLE_MIN:-15}"
   } > .env
   echo "Секреты записаны в .env (MinIO-пароль и пароль UI — случайные)."
 fi

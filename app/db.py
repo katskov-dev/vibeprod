@@ -32,6 +32,10 @@ def init_db():
         scols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
         if "source" not in scols:
             conn.execute("ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'manual'")
+        if "pending_prompt" not in scols:
+            # Промпт, который нужно отправить после старта воркера из очереди
+            # (квота VIBEPROD_MAX_CONCURRENT_SESSIONS): 1 — отправить prompt.
+            conn.execute("ALTER TABLE sessions ADD COLUMN pending_prompt INTEGER DEFAULT 0")
         acols = {r["name"] for r in conn.execute("PRAGMA table_info(agents)").fetchall()}
         if "variant" not in acols:
             conn.execute("ALTER TABLE agents ADD COLUMN variant TEXT")
@@ -39,6 +43,13 @@ def init_db():
             conn.execute("ALTER TABLE agents ADD COLUMN memory TEXT DEFAULT ''")
         if "memory_enabled" not in acols:
             conn.execute("ALTER TABLE agents ADD COLUMN memory_enabled INTEGER DEFAULT 1")
+        if "issues_own_only" not in acols:
+            conn.execute("ALTER TABLE agents ADD COLUMN issues_own_only INTEGER DEFAULT 0")
+        icols = {r["name"] for r in conn.execute("PRAGMA table_info(issues)").fetchall()}
+        if "priority" not in icols:
+            conn.execute("ALTER TABLE issues ADD COLUMN priority TEXT DEFAULT 'medium'")
+        if "assignee_id" not in icols:
+            conn.execute("ALTER TABLE issues ADD COLUMN assignee_id INTEGER REFERENCES agents(id) ON DELETE SET NULL")
         pcols = {r["name"] for r in conn.execute("PRAGMA table_info(providers)").fetchall()}
         if "models_full" not in pcols:
             conn.execute("ALTER TABLE providers ADD COLUMN models_full TEXT")

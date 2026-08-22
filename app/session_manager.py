@@ -3,6 +3,7 @@ import asyncio
 import os
 import secrets
 import shutil
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -14,8 +15,11 @@ from .docker_runner import (
     NETWORK_HINT,
     container_exists,
     container_logs,
+    container_status,
+    ensure_running,
     get_host_port,
     kill_worker,
+    pause_worker,
     run_worker,
 )
 from .opencode_client import OpencodeClient, wait_healthy, worker_urls
@@ -27,7 +31,19 @@ WORKSPACES = DATA_DIR / "workspaces"
 # Хост-путь к data (для bind-mount в воркеры): если брокер сам в докере,
 # внутриконтейнерный путь докеру не виден — задаётся через env.
 HOST_DATA_DIR = Path(os.environ.get("VIBEPROD_HOST_DATA_DIR", DATA_DIR))
-IDLE_TTL = int(os.environ.get("VIBEPROD_IDLE_TTL_MIN", "120")) * 60
+IDLE_TTL = int(os.environ.get("VIBEPROD_IDLE_TTL_MIN", "60")) * 60
+# Двухуровневый idle: после SUSPEND_IDLE контейнер паузится (0 CPU, RAM держится),
+# после IDLE_TTL — убивается и лежит на диске до следующего обращения.
+SUSPEND_IDLE = int(os.environ.get("VIBEPROD_SUSPEND_IDLE_MIN", "15")) * 60
+# Интервал фонового цикла (dispatch очереди + idle-тиры).
+LOOP_INTERVAL = int(os.environ.get("VIBEPROD_CLEANUP_INTERVAL_S", "10"))
+# Квота параллельно живущих воркеров: сверх лимита сессии ждут в status='queued'.
+# 0 — без ограничений (поведение как раньше).
+MAX_CONCURRENT = int(os.environ.get("VIBEPROD_MAX_CONCURRENT_SESSIONS", "0") or 0)
+
+# Троттлинг last_activity при активной генерации (иначе долгий прогон
+# выглядит «простаивающим» и уходит в pause/expire прямо посреди работы).
+_touch_at = {}
 
 
 def storage_name(sid):
@@ -163,6 +179,45 @@ def _terminal_fail(sid, error):
     events.emit("session.failed", events.session_event_data(sid))
 
 
+def touch_session(sid, interval=60):
+    """Обновляет last_activity не чаще раза в interval секунд (активная генерация)."""
+    now = time.monotonic()
+    if now - _touch_at.get(sid, 0) >= interval:
+        _touch_at[sid] = now
+        db.execute("UPDATE sessions SET last_activity=datetime('now') WHERE id=?", (sid,))
+
+
+def _active_count():
+    return db.query_one(
+        "SELECT COUNT(*) AS c FROM sessions WHERE status IN ('starting','running')"
+    )["c"]
+
+
+async def _reserve_start_slot(sid):
+    """Пробует занять слот квоты (переход в 'starting').
+
+    При MAX_CONCURRENT=0 — квоты нет, но переход в 'starting' всё равно
+    фиксируется синхронно: повторный вызов для уже стартующей/работающей
+    сессии возвращает False (защита от двойного подъёма воркера). Если
+    слотов нет — сессия остаётся 'queued', её подхватит диспетчер из
+    cleanup_loop. Проверка и переход без await — гонок между параллельными
+    стартами нет.
+    """
+    cur = db.query_one("SELECT status FROM sessions WHERE id=?", (sid,))
+    if cur is None or cur["status"] in ("starting", "running"):
+        return False
+    if MAX_CONCURRENT > 0 and _active_count() >= MAX_CONCURRENT:
+        db.execute("UPDATE sessions SET status='queued' WHERE id=?", (sid,))
+        await streams.broadcast(sid, {"type": "status", "status": "queued"})
+        return False
+    db.execute(
+        "UPDATE sessions SET status='starting', pending_prompt=0, "
+        "started_at=datetime('now'), last_activity=datetime('now'), error=NULL WHERE id=?",
+        (sid,),
+    )
+    return True
+
+
 def create_session(agent_id, title, prompt, source="manual", project_id=None):
     agent = db.query_one("SELECT * FROM agents WHERE id=?", (agent_id,))
     if not agent:
@@ -172,8 +227,8 @@ def create_session(agent_id, title, prompt, source="manual", project_id=None):
     sid = uuid.uuid4().hex
     title = (title or "").strip() or (prompt or "Session")[:60]
     db.execute(
-        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, prompt, status, model, last_activity) "
-        "VALUES(?,?,?,?,?,?,?,'queued',?,datetime('now'))",
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, title, source, prompt, status, model, last_activity, pending_prompt) "
+        "VALUES(?,?,?,?,?,?,?,'queued',?,datetime('now'),1)",
         (sid, agent["id"], agent["name"], project_id, title, source or "manual", prompt, agent["model"]),
     )
     events.emit("session.created", events.session_event_data(sid))
@@ -184,9 +239,13 @@ async def start_session(sid, initial_prompt=None):
     row = get_session(sid)
     if not row:
         raise ValueError("session not found")
+    if row.get("pending_prompt") and not initial_prompt:
+        initial_prompt = row["prompt"] or None
     agent = db.query_one("SELECT * FROM agents WHERE id=?", (row["agent_id"],))
     if not agent:
         _terminal_fail(sid, "agent deleted")
+        return
+    if not await _reserve_start_slot(sid):
         return
     wdir = ws_dir(sid)
     wdir.mkdir(parents=True, exist_ok=True)
@@ -272,6 +331,7 @@ async def send_prompt(sid, text):
         raise RuntimeError("сессия не запущена")
     if not row["opencode_session_id"] or not container_exists(row["container_id"]):
         raise RuntimeError("воркер мёртв, перезапустите сессию")
+    await asyncio.to_thread(ensure_running, row["container_id"])
     client = _client_for(row)
     try:
         await asyncio.to_thread(client.prompt_async, row["opencode_session_id"], text, agent=row["agent_name"])
@@ -291,8 +351,13 @@ async def restart_session(sid):
         raise ValueError("session not found")
     if row["container_id"] and container_exists(row["container_id"]):
         await asyncio.to_thread(kill_worker, row["container_id"])
-    db.execute("UPDATE sessions SET container_id=NULL, host_port=NULL WHERE id=?", (sid,))
+    # 'queued': рестарт проходит через квоту, как обычный старт (диспетчер
+    # поднимет воркер, когда освободится слот).
+    db.execute("UPDATE sessions SET container_id=NULL, host_port=NULL, status='queued' WHERE id=?", (sid,))
     await streams.stop(sid)
+    # Рестарт не должен заново слать сохранённый prompt: чистим флаг, иначе
+    # диспетчер очереди (если упрёмся в квоту) повторит первое сообщение.
+    db.execute("UPDATE sessions SET pending_prompt=0 WHERE id=?", (sid,))
     await start_session(sid, initial_prompt=None)
 
 
@@ -335,13 +400,17 @@ async def continue_session(sid, text):
         await asyncio.to_thread(kill_worker, row["container_id"])
     db.execute("UPDATE sessions SET container_id=NULL, host_port=NULL WHERE id=?", (sid,))
     await streams.stop(sid)
-    await start_session(sid, initial_prompt=text)
+    # Сохраняем новое сообщение как отложенный prompt: если квота занята,
+    # сессия уйдёт в 'queued', и диспетчер отправит его после старта воркера.
+    db.execute("UPDATE sessions SET prompt=?, pending_prompt=1 WHERE id=?", (text, sid))
+    await start_session(sid)
 
 
 async def abort_session(sid):
     row = get_session(sid)
     if not row or not row["opencode_session_id"] or not row["container_id"]:
         return
+    await asyncio.to_thread(ensure_running, row["container_id"])
     client = _client_for(row)
     try:
         await asyncio.to_thread(client.abort, row["opencode_session_id"])
@@ -355,6 +424,7 @@ async def answer_question(sid, request_id, answers):
         raise RuntimeError("сессия не запущена")
     if not row["opencode_session_id"] or not container_exists(row["container_id"]):
         raise RuntimeError("воркер мёртв, перезапустите сессию")
+    await asyncio.to_thread(ensure_running, row["container_id"])
     client = _client_for(row)
     try:
         await asyncio.to_thread(client.reply_question, request_id, answers)
@@ -368,6 +438,7 @@ async def reject_question(sid, request_id):
         raise RuntimeError("сессия не запущена")
     if not row["opencode_session_id"] or not container_exists(row["container_id"]):
         raise RuntimeError("воркер мёртв, перезапустите сессию")
+    await asyncio.to_thread(ensure_running, row["container_id"])
     client = _client_for(row)
     try:
         await asyncio.to_thread(client.reject_question, request_id)
@@ -413,9 +484,57 @@ async def expire_session(sid):
         await streams.broadcast(sid, {"type": "status", "status": "expired"})
 
 
+async def _suspend_worker(row):
+    """Паузит контейнер простаивающей сессии (idle-тир 1: 0 CPU)."""
+    cid = row["container_id"]
+    if not cid or not container_exists(cid):
+        return
+    try:
+        if container_status(cid) == "running":
+            await asyncio.to_thread(pause_worker, cid)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("vibeprod").warning("pause %s: %s", row["id"], exc)
+
+
+async def _start_guarded(sid):
+    try:
+        await start_session(sid)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("vibeprod").exception("queued start %s", sid)
+        _terminal_fail(sid, exc)
+
+
+async def _dispatch_queued():
+    """Поднимает queued-сессии, пока есть свободные слоты квоты.
+
+    При MAX_CONCURRENT=0 квоты нет — просто разгребаем хвост очереди
+    (например, если лимит отключили после рестарта брокера).
+    """
+    if MAX_CONCURRENT > 0:
+        free = MAX_CONCURRENT - _active_count()
+        if free <= 0:
+            return
+        limit = free
+    else:
+        limit = 10
+    rows = db.query("SELECT * FROM sessions WHERE status='queued' ORDER BY created_at LIMIT ?", (limit,))
+    for row in rows:
+        asyncio.create_task(_start_guarded(row["id"]))
+
+
 async def cleanup_loop():
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(LOOP_INTERVAL)
+        try:
+            await _dispatch_queued()
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("vibeprod").warning("dispatch: %s", exc)
         try:
             now = datetime.utcnow()
             for row in db.query(
@@ -428,8 +547,11 @@ async def cleanup_loop():
                     last = datetime.strptime(la, "%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     continue
-                if (now - last).total_seconds() > IDLE_TTL:
+                idle = (now - last).total_seconds()
+                if idle > IDLE_TTL:
                     await expire_session(row["id"])
+                elif idle > SUSPEND_IDLE and row["status"] in ("running", "completed", "failed"):
+                    await _suspend_worker(row)
         except Exception as exc:
             import logging
 
@@ -449,6 +571,8 @@ async def reattach_streamers():
     for row in rows:
         if not container_exists(row["container_id"]):
             continue
+        # Контейнер мог быть заморожен по idle-тир 1 — разбудить перед опросом.
+        await asyncio.to_thread(ensure_running, row["container_id"])
         urls = worker_urls(row["host_port"])
         url = await asyncio.to_thread(wait_healthy, urls, row["auth_token"])
         if not url:

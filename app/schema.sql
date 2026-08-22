@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS agents (
   permission TEXT DEFAULT '"allow"',
   memory TEXT DEFAULT '',
   memory_enabled INTEGER DEFAULT 1,
+  issues_own_only INTEGER DEFAULT 0,
   is_default INTEGER DEFAULT 0,
   project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT (datetime('now')),
@@ -94,7 +95,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT DEFAULT (datetime('now')),
   started_at TEXT,
   finished_at TEXT,
-  last_activity TEXT
+  last_activity TEXT,
+  pending_prompt INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -213,6 +215,33 @@ CREATE TABLE IF NOT EXISTS out_webhook_deliveries (
 
 CREATE INDEX IF NOT EXISTS idx_out_deliveries_webhook ON out_webhook_deliveries(webhook_id);
 
+CREATE TABLE IF NOT EXISTS automations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  name TEXT DEFAULT '',
+  events TEXT NOT NULL DEFAULT '["session.completed","session.failed"]',
+  prompt TEXT DEFAULT '',
+  enabled INTEGER DEFAULT 1,
+  chain INTEGER DEFAULT 0,
+  last_run TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  automation_id INTEGER NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+  session_id TEXT,
+  event TEXT,
+  payload TEXT,
+  status TEXT DEFAULT 'queued',
+  error TEXT,
+  started_at TEXT,
+  finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_auto ON automation_runs(automation_id);
+
 CREATE TABLE IF NOT EXISTS telegram_config (
   project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   token TEXT DEFAULT '',
@@ -233,6 +262,8 @@ CREATE TABLE IF NOT EXISTS issues (
   title TEXT NOT NULL,
   description TEXT DEFAULT '',
   status TEXT DEFAULT 'open',
+  priority TEXT DEFAULT 'medium',
+  assignee_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
   tags TEXT DEFAULT '',
   created_by TEXT DEFAULT 'manual',
   created_at TEXT DEFAULT (datetime('now')),
@@ -240,6 +271,17 @@ CREATE TABLE IF NOT EXISTS issues (
 );
 
 CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+
+CREATE TABLE IF NOT EXISTS issue_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+  agent_name TEXT DEFAULT '',
+  text TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id);
 
 CREATE TABLE IF NOT EXISTS ssh_servers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

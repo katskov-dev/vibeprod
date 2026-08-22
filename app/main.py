@@ -20,9 +20,11 @@ from . import telegram
 from .api import (
     agents,
     auth as auth_api,
+    automations,
     broker_mcp as broker_mcp_api,
     catalog,
     channels,
+    dashboard,
     files,
     guardian,
     issues,
@@ -98,9 +100,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="opencode Vibeprod", lifespan=lifespan)
 app.include_router(auth_api.router)
 app.include_router(agents.router)
+app.include_router(automations.router)
 app.include_router(broker_mcp_api.router)
 app.include_router(catalog.router)
 app.include_router(channels.router)
+app.include_router(dashboard.router)
 app.include_router(files.router)
 app.include_router(guardian.router)
 app.include_router(issues.router)

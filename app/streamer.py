@@ -201,6 +201,11 @@ class StreamManager:
         if psid is None:
             return
         await self.broadcast(sid, {"type": "event", "event": {"type": etype, "properties": props}})
+        # Живая генерация = активность: троттл-обновление last_activity, чтобы
+        # idle-тиры cleanup_loop не заморозили/не убили сессию посреди работы.
+        from . import session_manager
+
+        session_manager.touch_session(sid)
         if etype in PERSIST_TYPES:
             db.execute(
                 "INSERT INTO events(session_id, type, payload) VALUES(?,?,?)",

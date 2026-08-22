@@ -4,9 +4,10 @@ emit() — синхронная функция: её можно звать из 
 поток APScheduler, event loop). Она шедулит async-задачу доставки на главный
 event loop брокера (MAIN_LOOP), как это делает spawn_start в main.py.
 
-Потребители: исходящие вебхуки (outwebhooks.py) и всё, что захочется добавить
-потом. Никакой очереди — события теряются при падении процесса, это осознанный
-компромисс в духе проекта.
+Потребители: исходящие вебхуки (outwebhooks.py), автоматизации по событиям
+(automations.py) и всё, что захочется добавить потом. Никакой очереди —
+события теряются при падении процесса, это осознанный компромисс в духе
+проекта.
 """
 
 import logging
@@ -34,7 +35,11 @@ def emit(event, data=None, main_loop=None):
     if event not in EVENT_TYPES:
         log.warning("emit: неизвестное событие %r", event)
         return
-    outwebhooks.dispatch(event, data or {}, main_loop=main_loop)
+    data = data or {}
+    outwebhooks.dispatch(event, data, main_loop=main_loop)
+    from . import automations
+
+    automations.dispatch(event, data, main_loop=main_loop)
 
 
 def session_event_data(sid, **extra):
@@ -51,6 +56,7 @@ def session_event_data(sid, **extra):
         return {"id": sid, **extra}
     data = {
         "id": row["id"],
+        "project_id": row["project_id"],
         "title": row["title"],
         "status": row["status"],
         "source": row["source"],

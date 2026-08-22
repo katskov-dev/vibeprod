@@ -189,6 +189,20 @@ over the raw body. Deliveries retry with backoff (1s → 5s → 15s → 60s → 
 on network errors, 429 and 5xx; every attempt lands in the per-webhook delivery
 log with the response code and error.
 
+**Event automations** (Automation → "On events") start an agent inside the
+broker when an event fires: a session completed or failed, a schedule fired, a
+webhook arrived. The rule's prompt is a template with `{event}`, `{json}` (the
+full event payload) and event fields — `{title}`, `{status}`, `{prompt}`,
+`{agent_name}`, `{project_name}`, `{error}`, `{url}`, `{session_id}`. For
+example, a rule "report every failed run to Telegram" is an agent with the
+prompt `Событие {event}. {json}` subscribed to `session.failed`.
+
+Every firing is an ordinary session tagged `automation`, visible in the rule's
+run log. Rules can be chained ("session A finished → start session B"), but
+cascades are off by default: a rule ignores sessions created by other
+automations, which guards against accidental infinite loops. Turn on
+"cascades" for deliberate pipelines.
+
 ![Channels](docs/screenshots/channels.png)
 
 **Telegram** runs inside the broker on long polling — no extra dependency, no
@@ -196,8 +210,8 @@ public URL. Configure the bot token and allowed user IDs in the UI. The first
 message opens a session, later ones continue it, and the agent's reply is
 streamed by editing the bot's message in place. Commands: `/agents`, `/agent N`,
 `/new`, `/abort`, `/status`, `/link`, `/chatid`. Set a notification chat (see
-`/chatid`) to receive summaries of scheduled and webhook runs — on every run or
-only on errors.
+`/chatid`) to receive summaries of scheduled, webhook and automation runs — on
+every run or only on errors.
 
 Every agent also gets built-in Vibeprod tools (a `vibeprod` remote-MCP inside
 each session): `telegram_send` — message the user on Telegram,
@@ -269,7 +283,12 @@ with an SLA, or a mature pull-request review workflow.
 | `VIBEPROD_HOST_DATA_DIR` | `= VIBEPROD_DATA_DIR` | Same directory as the Docker daemon sees it. Needed when the broker itself is containerised |
 | `VIBEPROD_OPENCODE_IMAGE` | `vibeprod-opencode:latest` | Worker image, built from `worker/` on first run |
 | `VIBEPROD_WORKER_BUILD_DIR` | `./worker` | Build context for the worker image |
-| `VIBEPROD_IDLE_TTL_MIN` | `120` | Idle minutes before a worker is killed |
+| `VIBEPROD_IDLE_TTL_MIN` | `60` | Idle minutes before a worker is killed |
+| `VIBEPROD_SUSPEND_IDLE_MIN` | `15` | Idle minutes before a worker is paused (`docker pause`: 0 CPU) |
+| `VIBEPROD_MAX_CONCURRENT_SESSIONS` | `0` | Cap on simultaneously living workers; excess sessions wait in the queue (`status=queued`). `0` — unlimited. On weak hardware: `10`–`20` |
+| `VIBEPROD_WORKER_MEM` | `384m` | Worker `mem_limit` |
+| `VIBEPROD_WORKER_SWAP` | `1024m` | Worker `memswap_limit`: idle pages spill to disk |
+| `VIBEPROD_WORKER_PIDS` | `512` | Worker `pids_limit` (fork-bomb protection) |
 | `VIBEPROD_PORT` | `8000` | Broker port |
 | `VIBEPROD_BIND` | `127.0.0.1` | Uvicorn bind address; with `network_mode: host` this *is* the port exposure. `0.0.0.0` only together with `VIBEPROD_LOGIN`/`VIBEPROD_PASSWORD` |
 | `VIBEPROD_TZ` | `Europe/Moscow` | Timezone for cron schedules |

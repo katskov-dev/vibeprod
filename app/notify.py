@@ -1,4 +1,5 @@
-"""Уведомления в каналы: сводка результата фоновых запусков (расписания, вебхуки).
+"""Уведомления в каналы: сводка результата фоновых запусков (расписания,
+вебхуки, автоматизации).
 
 Хук on_session_done() вызывается стримером при финализации сессии. Если у
 проекта в telegram_config задан notify_chat_id, туда уходит сводка: источник,
@@ -11,10 +12,10 @@ from . import db
 
 log = logging.getLogger("vibeprod.notify")
 
-NOTIFY_SOURCES = ("schedule", "webhook")
+NOTIFY_SOURCES = ("schedule", "webhook", "automation")
 RESULT_LIMIT = 1500
 
-SOURCE_LABEL = {"schedule": "Расписание", "webhook": "Вебхук"}
+SOURCE_LABEL = {"schedule": "Расписание", "webhook": "Вебхук", "automation": "Автоматизация"}
 
 
 def _result_text(result):

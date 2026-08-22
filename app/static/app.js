@@ -55,11 +55,22 @@ function esc(s) {
 }
 
 /* ---------- modal ---------- */
-function openModal(title, bodyHtml, onSubmit) {
+function bindModalOverlayClose(close) {
+  const overlay = $('#modal-overlay');
+  if (!overlay) return;
+  overlay.addEventListener('mousedown', (e) => {
+    overlay.dataset.downOnOverlay = (e.target === overlay) ? '1' : '';
+  });
+  overlay.onclick = (e) => {
+    if (e.target === overlay && overlay.dataset.downOnOverlay === '1') close();
+  };
+}
+
+function openModal(title, bodyHtml, onSubmit, width = 'max-w-4xl') {
   const root = $('#modal-root');
   root.innerHTML = `
     <div class="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4" id="modal-overlay">
-      <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full ${width} max-h-[90vh] flex flex-col shadow-2xl">
         <div class="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
           <div class="font-semibold">${esc(title)}</div>
           <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">&times;</button>
@@ -74,7 +85,7 @@ function openModal(title, bodyHtml, onSubmit) {
   const close = () => root.innerHTML = '';
   $('#modal-close').onclick = close;
   $('#modal-cancel').onclick = close;
-  $('#modal-overlay').onclick = (e) => { if (e.target.id === 'modal-overlay') close(); };
+  bindModalOverlayClose(close);
   $('#modal-ok').onclick = async () => {
     try { await onSubmit(close); } catch (e) { toast(e.message, 'error'); }
   };
@@ -152,6 +163,7 @@ const VIEW_TITLES = {
   home: 'Начать работу', sessions: 'Сессии', issues: 'Issues', files: 'Файлы',
   agents: 'Агенты', providers: 'Провайдеры', 'mcp-catalog': 'MCP', skills: 'Скиллы',
   webhooks: 'Вебхуки', outwebhooks: 'Исходящие', schedules: 'Расписания',
+  automations: 'По событиям',
   channels: 'Каналы', projects: 'Настройки проекта', ssh: 'SSH',
 };
 
@@ -220,6 +232,7 @@ async function refreshCurrentView() {
   else if (currentView === 'skills') renderSkills();
   else if (currentView === 'webhooks') renderAutomation('webhooks');
   else if (currentView === 'outwebhooks') renderAutomation('outwebhooks');
+  else if (currentView === 'automations') renderAutomation('automations');
   else if (currentView === 'schedules' || currentView === 'automation') renderAutomation('schedules');
   else if (currentView === 'channels') renderChannels();
   else if (currentView === 'ssh') renderSsh();
@@ -228,6 +241,7 @@ async function refreshCurrentView() {
 
 function showView(view, arg) {
   currentView = view;
+  if (!(view === 'sessions' && arg)) closeChatWs();
   $$('.nav-btn').forEach(b => {
     const active = b.dataset.view === view;
     b.classList.toggle('bg-neutral-800', active);
@@ -247,6 +261,7 @@ function showView(view, arg) {
   else if (view === 'skills') renderSkills();
   else if (view === 'webhooks') renderAutomation('webhooks');
   else if (view === 'outwebhooks') renderAutomation('outwebhooks');
+  else if (view === 'automations') renderAutomation('automations');
   else if (view === 'schedules' || view === 'automation') renderAutomation('schedules');
   else if (view === 'channels') renderChannels(arg);
   else if (view === 'ssh') renderSsh(arg);
@@ -303,17 +318,183 @@ window.onpopstate = (e) => {
 
 const projQuery = () => currentProject ? `?project_id=${currentProject}` : '';
 
-/* ---------- home (агент-оператор) ---------- */
-const HOME_EXAMPLES = [
-  'Покажи, как настроен мой проект',
-  'Создай агента для работы с документами и подключи ему playwright',
-  'Добавь провайдера openai — ключ у меня есть',
-  'Настрой вебхук, который запускает утренний отчёт по будням',
-  'Создай скилл «перевод договоров» и привяжи его к агенту general',
-];
+/* ---------- home (агент-оператор + дашборд проекта) ---------- */
+let homeTimer = null;
+
+function dashCard(title, extra, body, cls = '') {
+  return `<div class="rounded-2xl border border-neutral-800 bg-neutral-900/70 backdrop-blur p-3.5 ${cls}">
+    <div class="flex items-center justify-between mb-2 gap-2">
+      <div class="text-[13px] font-semibold">${title}</div>${extra || ''}
+    </div>
+    <div>${body}</div>
+  </div>`;
+}
+
+function dashLink(text, view, sub) {
+  return `<button class="text-xs text-sky-400 hover:text-sky-300 hover:underline" data-view-link="${view}" ${sub !== undefined ? `data-view-sub="${esc(sub)}"` : ''}>${esc(text)}</button>`;
+}
+
+async function loadDashboard() {
+  if (currentView !== 'home') return;
+  const el = $('#dash-grid');
+  if (!el) return;
+  let d;
+  try { d = await api.get('/api/dashboard' + projQuery()); } catch (e) { return; }
+
+  // Активные сессии
+  const activeBody = d.active_sessions.length ? d.active_sessions.slice(0, 5).map(s => `
+    <div class="flex items-center gap-2 py-1 px-2 -mx-2 rounded-lg hover:bg-neutral-800/50 cursor-pointer" data-open-session="${esc(s.id)}">
+      ${badge(s.status)}
+      <div class="flex-1 min-w-0">
+        <div class="text-xs truncate">${esc(s.title || 'Без названия')}</div>
+        <div class="text-[10px] text-neutral-500 truncate">${esc(s.agent_name || '')}</div>
+      </div>
+    </div>`).join('') : '<div class="text-xs text-neutral-500">Сейчас ничего не запущено</div>';
+
+  // Issues
+  const issueChips = Object.entries(ISSUE_STATUSES).map(([v, m]) => {
+    const n = d.issues.by_status[v] || 0;
+    return `<button class="dash-issue px-2 py-0.5 rounded-lg border text-[11px] ${n ? m.cls : 'bg-neutral-900 border-neutral-800 text-neutral-500 hover:text-neutral-300'}" data-status="${v}">${m.label} ${n}</button>`;
+  }).join('');
+  const issueBody = `
+    <div class="flex flex-wrap gap-1 mb-2">${issueChips}</div>
+    ${d.issues.critical_open
+      ? `<div class="text-[11px] text-red-400">критичных в работе: ${d.issues.critical_open}</div>`
+      : '<div class="text-[11px] text-neutral-500">критичных в работе нет</div>'}`;
+
+  // Ошибки
+  const errRows = [];
+  d.failed_sessions.slice(0, 3).forEach(s => errRows.push(`
+    <div class="flex items-center gap-2 py-1 px-2 -mx-2 rounded-lg hover:bg-neutral-800/50 cursor-pointer" data-open-session="${esc(s.id)}" title="${esc(s.error || '')}">
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 shrink-0">сессия</span>
+      <div class="text-xs truncate min-w-0 flex-1">${esc(s.title || 'Без названия')}</div>
+    </div>`));
+  d.failed_deliveries.slice(0, 3).forEach(x => errRows.push(`
+    <div class="flex items-center gap-2 py-1 px-2 -mx-2 rounded-lg hover:bg-neutral-800/50">
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-900/60 text-fuchsia-300 shrink-0">доставка</span>
+      <div class="text-xs truncate min-w-0 flex-1" title="${esc(x.error || '')}">${esc(x.webhook_name || '')} · ${esc(x.event)}</div>
+      <button class="dash-retry text-[10px] px-2 py-0.5 rounded border border-neutral-700 hover:bg-neutral-800 shrink-0" data-wid="${x.webhook_id}" data-did="${x.id}">повторить</button>
+    </div>`));
+  d.failed_runs.slice(0, 3).forEach(r => errRows.push(`
+    <div class="flex items-center gap-2 py-1 px-2 -mx-2 rounded-lg hover:bg-neutral-800/50 cursor-pointer" data-view-link="schedules" title="${esc(r.error || '')}">
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 shrink-0">расписание</span>
+      <div class="text-xs truncate min-w-0 flex-1">${esc(r.schedule_title || '')}</div>
+    </div>`));
+  const errBody = errRows.length ? errRows.slice(0, 4).join('') : '<div class="text-xs text-neutral-500">Ошибок нет</div>';
+
+  // Лента событий
+  const feedBody = d.feed.length ? d.feed.slice(0, 6).map(f => `
+    <div class="py-1.5 border-b border-neutral-800/60 last:border-0">
+      <div class="flex items-center gap-2 min-w-0">
+        ${badge(f.status)}
+        <button class="text-xs font-medium truncate text-left hover:text-sky-300" data-open-session="${esc(f.id)}">${esc(f.title || 'Без названия')}</button>
+      </div>
+      <div class="text-[10px] text-neutral-500 mt-0.5">${esc(f.agent_name || '')}${f.finished_at ? ` · ${esc(f.finished_at.slice(0, 16))}` : ''}</div>
+      ${f.preview ? `<div class="text-[11px] text-neutral-400 mt-0.5 line-clamp-1">${esc(f.preview)}</div>` : ''}
+      ${f.error ? `<div class="text-[11px] text-red-400 mt-0.5 truncate">${esc(f.error)}</div>` : ''}
+    </div>`).join('') : '<div class="text-xs text-neutral-500">Завершённых сессий пока нет</div>';
+
+  // Активность за 14 дней
+  const maxTotal = Math.max(1, ...d.activity.map(a => a.total));
+  const actBody = `
+    <div class="flex items-end gap-1 h-14">
+      ${d.activity.map(a => `
+        <div class="flex-1 flex flex-col items-center gap-1" title="${a.d}: ${a.total}${a.failed ? ` (ошибок: ${a.failed})` : ''}">
+          <div class="w-full rounded-t ${a.failed ? 'bg-red-800/80' : 'bg-sky-800/70'}" style="height:${Math.max(a.total ? Math.round(a.total / maxTotal * 44) : 2, 2)}px"></div>
+        </div>`).join('')}
+    </div>
+    <div class="flex justify-between text-[10px] text-neutral-600 mt-1">
+      <span>${esc(d.activity[0]?.d || '')}</span><span>${esc(d.activity[d.activity.length - 1]?.d || '')}</span>
+    </div>`;
+
+  // Каналы и триггеры
+  const tg = d.channel;
+  const chBody = `
+    <div class="text-[11px] mb-2">
+      ${tg === null
+        ? '<span class="text-neutral-500">выберите проект, чтобы видеть Telegram</span>'
+        : tg.connected
+          ? '<span class="text-emerald-400">Telegram подключён</span>'
+          : tg.configured
+            ? '<span class="text-amber-400">Telegram не подключён</span>'
+            : '<span class="text-neutral-500">Telegram не настроен</span>'}
+      ${tg && tg.last_error ? `<span class="text-red-400"> — ${esc(tg.last_error)}</span>` : ''}
+    </div>
+    <div class="space-y-1 text-[11px]">
+      <div class="flex items-center justify-between">
+        <span class="text-neutral-400">Расписания</span>
+        <button class="text-sky-400 hover:underline" data-view-link="schedules">${d.schedules_enabled} из ${d.schedules_total} вкл</button>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-neutral-400">Вебхуки</span>
+        <button class="text-sky-400 hover:underline" data-view-link="webhooks">${d.triggers.webhooks} вкл</button>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-neutral-400">Автоматизации</span>
+        <button class="text-sky-400 hover:underline" data-view-link="automations">${d.triggers.automations} вкл</button>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-neutral-400">Исходящие</span>
+        <button class="text-sky-400 hover:underline" data-view-link="outwebhooks">${d.triggers.out_webhooks} вкл</button>
+      </div>
+    </div>`;
+
+  // Агенты
+  const agentsBody = d.agents.length ? d.agents.slice(0, 5).map(a => `
+    <div class="flex items-center gap-2 py-1 border-b border-neutral-800/60 last:border-0 cursor-pointer" data-view-link="agents" title="${esc(a.description || '')}">
+      <span class="mono text-[11px] text-sky-300">${esc(a.name)}</span>
+      ${a.is_default ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/60 text-sky-300">по умолч.</span>' : ''}
+      <span class="text-[10px] text-neutral-600 ml-auto truncate shrink-0">${esc(a.model || '—')}</span>
+    </div>`).join('') : '<div class="text-xs text-neutral-500">Агентов нет</div>';
+
+  // Провайдеры
+  const provBody = d.providers.length ? d.providers.slice(0, 5).map(p => `
+    <div class="flex items-center gap-2 py-1 border-b border-neutral-800/60 last:border-0 cursor-pointer" data-view-link="providers">
+      <span class="mono text-[11px] text-sky-300">${esc(p.id)}</span>
+      <span class="text-[10px] text-neutral-600 ml-auto shrink-0">${p.enabled ? '' : 'выкл · '}${p.last_check_ok === 1 ? 'проверка: ок' : p.last_check_ok === 0 ? 'проверка: ошибка' : 'проверка: —'}</span>
+      <span class="${p.has_key ? 'text-emerald-400' : 'text-amber-400'} text-[10px] shrink-0">${p.has_key ? 'ключ' : 'нет ключа'}</span>
+    </div>`).join('') : '<div class="text-xs text-neutral-500">Провайдеров нет</div>';
+
+  // Файлы
+  const filesBody = currentProject
+    ? (d.files.length ? d.files.slice(0, 4).map(f => `
+        <a href="${esc(f.url)}" target="_blank" rel="noopener" class="flex items-center gap-2 py-1 px-2 -mx-2 rounded-lg hover:bg-neutral-800/50">
+          <span class="truncate flex-1 text-[11px] text-neutral-300">${esc(f.name)}</span>
+          <span class="text-[10px] text-neutral-600 shrink-0">${f.size != null ? fmtSize(f.size) : ''}</span>
+        </a>`).join('') : '<div class="text-xs text-neutral-500">Файлов нет</div>')
+    : '<div class="text-xs text-neutral-500">выберите проект, чтобы видеть файлы</div>';
+
+  el.innerHTML = `
+    ${dashCard('Активные сессии', dashLink('все сессии', 'sessions'), activeBody)}
+    ${dashCard('Issues', dashLink('открыть трекер', 'issues'), issueBody)}
+    ${dashCard('Ошибки', '', errBody)}
+    ${dashCard('Лента событий', dashLink('все сессии', 'sessions'), feedBody, 'xl:col-span-2')}
+    <div class="flex flex-col gap-3">
+      ${dashCard('Активность', '', actBody)}
+      ${dashCard('Каналы и триггеры', '', chBody)}
+    </div>
+    ${dashCard('Агенты', dashLink('управление', 'agents'), agentsBody)}
+    ${dashCard('Провайдеры', dashLink('управление', 'providers'), provBody)}
+    ${dashCard('Файлы проекта', dashLink('все файлы', 'files'), filesBody)}`;
+  bindDashActions(el);
+}
+
+function bindDashActions(el) {
+  $$('[data-open-session]', el).forEach(b => b.onclick = () => showView('sessions', b.dataset.openSession));
+  $$('[data-view-link]', el).forEach(b => b.onclick = () => showView(b.dataset.viewLink));
+  $$('.dash-issue', el).forEach(b => b.onclick = () => { issueFilters.tab = b.dataset.status; showView('issues'); });
+  $$('.dash-retry', el).forEach(b => b.onclick = async () => {
+    try {
+      await api.post(`/api/out-webhooks/${b.dataset.wid}/deliveries/${b.dataset.did}/retry`);
+      toast('Повторная доставка запущена', 'ok');
+      setTimeout(loadDashboard, 1500);
+    } catch (e) { toast(e.message, 'error'); }
+  });
+}
 
 async function renderHome() {
   const main = $('#main');
+  if (homeTimer) { clearInterval(homeTimer); homeTimer = null; }
   let info = { ready: false };
   let agents = [];
   try {
@@ -335,20 +516,21 @@ async function renderHome() {
         <div class="absolute top-1/3 -left-28 w-96 h-96 rounded-full bg-indigo-500/10 blur-3xl"></div>
         <div class="absolute top-1/4 -right-28 w-96 h-96 rounded-full bg-fuchsia-500/10 blur-3xl"></div>
       </div>
-      <div class="relative max-w-2xl mx-auto px-6 pt-24 pb-16 flex flex-col items-center">
-        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center mb-6 shadow-lg shadow-sky-500/25">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"></path>
-            <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"></path>
-          </svg>
-        </div>
-        <div class="text-4xl font-bold tracking-tight text-center bg-gradient-to-r from-white via-sky-200 to-indigo-300 bg-clip-text text-transparent">Чем помочь сегодня?</div>
-        <div class="text-sm text-neutral-400 mt-3 text-center max-w-lg">Опишите задачу — агент сам настроит проект: создаст агентов, подключит MCP и скиллы, добавит провайдеров, вебхуки и расписания.</div>
-        ${info.ready ? '' : `
-        <div class="w-full mt-6 px-4 py-3 rounded-xl border border-amber-900/60 bg-amber-950/40 text-amber-300 text-sm text-center">
-          Агент-оператор не найден — перезапустите сервер.
-        </div>`}
-        <div class="w-full mt-8">
+      <div class="relative max-w-6xl mx-auto px-6 pt-10 pb-16">
+        <div class="max-w-2xl mx-auto mb-10">
+          <div class="flex items-center justify-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/25">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"></path>
+                <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"></path>
+              </svg>
+            </div>
+            <div class="text-2xl font-bold tracking-tight bg-gradient-to-r from-white via-sky-200 to-indigo-300 bg-clip-text text-transparent">Что поручить оператору?</div>
+          </div>
+          ${info.ready ? '' : `
+          <div class="w-full mb-4 px-4 py-3 rounded-xl border border-amber-900/60 bg-amber-950/40 text-amber-300 text-sm text-center">
+            Агент-оператор не найден — перезапустите сервер.
+          </div>`}
           <div id="home-composer" class="rounded-2xl border border-neutral-700/80 bg-neutral-900/90 shadow-2xl shadow-black/40 backdrop-blur transition-colors focus-within:border-sky-500/70">
             <textarea id="home-prompt" rows="2" placeholder="Опишите, что нужно сделать… Например: создай агента для проверки сайта с подключённым playwright"
               class="w-full bg-transparent px-5 pt-5 pb-3 text-[15px] leading-relaxed resize-none focus:outline-none placeholder:text-neutral-600"></textarea>
@@ -367,12 +549,7 @@ async function renderHome() {
           <div id="home-error" class="text-sm text-red-400 mt-3 text-center"></div>
           <div class="text-[11px] text-neutral-600 text-center mt-3">Enter — отправить · Shift+Enter — новая строка</div>
         </div>
-        <div class="mt-12 w-full">
-          <div class="text-[10px] uppercase tracking-widest text-neutral-600 mb-3 text-center">Попробуйте</div>
-          <div class="flex flex-wrap justify-center gap-2" id="home-examples">
-            ${HOME_EXAMPLES.map(e => `<button class="home-ex px-3.5 py-2 rounded-full border border-neutral-800 bg-neutral-900/60 hover:border-sky-700 hover:bg-neutral-800/70 hover:text-neutral-100 text-xs text-neutral-400 transition-colors" data-t="${esc(e)}">${esc(e)}</button>`).join('')}
-          </div>
-        </div>
+        <div id="dash-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"><div class="text-neutral-500 text-sm md:col-span-2 xl:col-span-3 text-center">загрузка…</div></div>
       </div>
     </div>`;
   const prompt = $('#home-prompt');
@@ -381,11 +558,6 @@ async function renderHome() {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 220) + 'px';
   };
-  $$('.home-ex', main).forEach(b => b.onclick = () => {
-    prompt.value = b.dataset.t;
-    prompt.focus();
-    autoGrow(prompt);
-  });
   prompt.addEventListener('input', () => autoGrow(prompt));
   prompt.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -416,18 +588,34 @@ async function renderHome() {
     }
   };
   if (prompt) prompt.focus();
+  await loadDashboard();
+  homeTimer = setInterval(loadDashboard, 30000);
 }
 
 /* ---------- sessions ---------- */
+let sessionsPage = 1;
+const SESSIONS_PAGE_SIZE = 25;
+
+const SOURCE_BADGES = {
+  webhook:    ['webhook', 'bg-fuchsia-900/60'],
+  schedule:   ['расписание', 'bg-amber-900/60'],
+  automation: ['автоматизация', 'bg-purple-900/60'],
+  guardian:   ['оператор', 'bg-sky-900/60'],
+  agent:      ['вызов агента', 'bg-emerald-900/60'],
+  telegram:   ['telegram', 'bg-sky-900/60'],
+};
+const sourceBadge = (source) => SOURCE_BADGES[source]
+  ? `<span class="px-1.5 py-px rounded ${SOURCE_BADGES[source][1]} text-[10px] shrink-0">${SOURCE_BADGES[source][0]}</span>` : '';
+
 async function renderSessions(openId) {
   const main = $('#main');
   main.innerHTML = `
     <div class="h-full flex flex-col">
-      <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
-        <div class="text-lg font-semibold">Сессии</div>
-        <button id="new-session" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новая сессия</button>
+      <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+        <div class="text-base font-semibold">Сессии</div>
+        <button id="new-session" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новая сессия</button>
       </div>
-      <div class="flex-1 overflow-y-auto p-6" id="sessions-list"><div class="text-neutral-500 text-sm">загрузка…</div></div>
+      <div class="flex-1 overflow-y-auto p-3" id="sessions-list"><div class="text-neutral-500 text-sm">загрузка…</div></div>
     </div>`;
   $('#new-session').onclick = async () => {
     const agents = await api.get('/api/agents' + projQuery());
@@ -447,33 +635,52 @@ async function renderSessions(openId) {
   await refreshSessionsList(openId);
 }
 
+const sessionsQuery = () => `${projQuery()}${projQuery() ? '&' : '?'}page=${sessionsPage}&page_size=${SESSIONS_PAGE_SIZE}`;
+
 async function refreshSessionsList(openId) {
   let data;
-  try { data = await api.get('/api/sessions' + projQuery()); } catch (e) { return; }
+  try { data = await api.get('/api/sessions' + sessionsQuery()); } catch (e) { return; }
   const el = $('#sessions-list');
   if (!el) return;
-  if (!data.length) {
+  // Старый бэкенд отдаёт просто массив — оборачиваем, чтобы список
+  // не выглядел пустым до перезапуска сервера.
+  if (Array.isArray(data)) data = { items: data, total: data.length, page: 1, page_size: data.length, pages: 1 };
+  const items = data.items || [];
+  const total = data.total ?? items.length;
+  if (!total) {
     el.innerHTML = `<div class="text-neutral-500 text-sm">Сессий пока нет. Создайте первую.</div>`;
     return;
   }
-  el.innerHTML = data.map(s => `
-    <div class="flex items-center gap-4 px-4 py-3 rounded-xl border border-neutral-800 hover:border-neutral-700 mb-2 cursor-pointer" data-open="${s.id}">
+  if (!items.length) {
+    sessionsPage = data.pages || 1;
+    return refreshSessionsList(openId);
+  }
+  const pages = data.pages || Math.max(1, Math.ceil(total / SESSIONS_PAGE_SIZE));
+  el.innerHTML = items.map(s => {
+    const err = s.error ? ` · <span class="text-red-400">${esc(s.error.slice(0, 100))}</span>` : '';
+    return `
+    <div class="flex items-center gap-3 px-3 py-1.5 rounded-lg border border-neutral-800 hover:border-neutral-700 mb-1 cursor-pointer" data-open="${s.id}">
       <div class="flex-1 min-w-0">
-        <div class="font-medium truncate flex items-center gap-2">${esc(s.title)}
-          ${s.source === 'webhook' ? '<span class="px-1.5 py-0.5 rounded bg-fuchsia-900/60 text-xs shrink-0">webhook</span>' : ''}
-          ${s.source === 'schedule' ? '<span class="px-1.5 py-0.5 rounded bg-amber-900/60 text-xs shrink-0">расписание</span>' : ''}
-          ${s.source === 'guardian' ? '<span class="px-1.5 py-0.5 rounded bg-sky-900/60 text-xs shrink-0">оператор</span>' : ''}
-          ${s.source === 'agent' ? '<span class="px-1.5 py-0.5 rounded bg-emerald-900/60 text-xs shrink-0">вызов агента</span>' : ''}
-          ${s.source === 'telegram' ? '<span class="px-1.5 py-0.5 rounded bg-sky-900/60 text-xs shrink-0">telegram</span>' : ''}
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="truncate text-sm">${esc(s.title)}</span>
+          ${sourceBadge(s.source)}
         </div>
-        <div class="text-xs text-neutral-500">${esc(s.agent_name || '—')} · ${esc(s.model || '')} · ${esc(s.created_at)}</div>
-        ${s.error ? `<div class="text-xs text-red-400 truncate mt-0.5" title="${esc(s.error)}">${esc(s.error.slice(0, 140))}</div>` : ''}
+        <div class="text-[11px] text-neutral-500 truncate">${esc(s.agent_name || '—')} · ${esc(s.model || '')} · ${esc(s.created_at)}${err}</div>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 shrink-0">
         ${badge(s.status)}
-        <button class="del text-neutral-600 hover:text-red-400 text-xs" data-del="${s.id}">удалить</button>
+        <button class="del text-neutral-600 hover:text-red-400 text-[11px]" data-del="${s.id}">удалить</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('') + `
+    <div class="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800 text-xs text-neutral-500">
+      <div>всего: ${total}</div>
+      <div class="flex items-center gap-2">
+        <button class="pg-prev px-2 py-1 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" ${sessionsPage <= 1 ? 'disabled' : ''}>‹ назад</button>
+        <span>стр. ${sessionsPage} из ${pages}</span>
+        <button class="pg-next px-2 py-1 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" ${sessionsPage >= pages ? 'disabled' : ''}>вперёд ›</button>
+      </div>
+    </div>`;
   $$('[data-open]', el).forEach(row => row.onclick = () => showView('sessions', row.dataset.open));
   $$('[data-del]', el).forEach(b => b.onclick = async (e) => {
     e.stopPropagation();
@@ -481,6 +688,9 @@ async function refreshSessionsList(openId) {
     await api.del(`/api/sessions/${b.dataset.del}`);
     await refreshSessionsList();
   });
+  const prev = $('.pg-prev', el), next = $('.pg-next', el);
+  if (prev) prev.onclick = () => { sessionsPage--; refreshSessionsList(); };
+  if (next) next.onclick = () => { sessionsPage++; refreshSessionsList(); };
   if (openId) renderChat(openId);
 }
 
@@ -815,6 +1025,16 @@ let questionQueue = []; // порядок ожидающих вопросов
 let activeQuestionID = null; // запрос, показанный сейчас вместо поля ввода
 let activeQuestionTab = 0;
 let activeSessionId = null;
+let chatWs = null;
+let chatWsSession = null;
+
+function closeChatWs() {
+  if (!chatWs) return;
+  chatWs.onclose = null;
+  chatWs.close();
+  chatWs = null;
+  chatWsSession = null;
+}
 
 function currentPending() {
   return questionQueue.find(id => {
@@ -1043,8 +1263,20 @@ function renderChat(sessionId) {
 
   connect();
   async function connect() {
+    if (
+      chatWsSession === sessionId &&
+      chatWs &&
+      (chatWs.readyState === WebSocket.OPEN || chatWs.readyState === WebSocket.CONNECTING)
+    ) {
+      ws = chatWs;
+      return;
+    }
+    closeChatWs();
+    chatWsSession = sessionId;
     ws = new WebSocket(`ws://${location.host}/ws/sessions/${sessionId}`);
+    chatWs = ws;
     ws.onmessage = (ev) => {
+      if (sessionId !== activeSessionId) return;
       const msg = JSON.parse(ev.data);
       if (msg.type === 'ping') return;
       if (msg.type === 'status') {
@@ -1058,12 +1290,16 @@ function renderChat(sessionId) {
         if (msg.status === 'completed' && msg.result) renderTranscript(msg.result);
       }
     };
-    ws.onclose = () => { setTimeout(connect, 3000); };
+    ws.onclose = () => {
+      if (ws !== chatWs || sessionId !== activeSessionId) return;
+      setTimeout(connect, 3000);
+    };
   }
 
   async function loadMeta() {
     try {
       const s = await api.get(`/api/sessions/${sessionId}`);
+      if (sessionId !== activeSessionId) return;
       $('#chat-title').textContent = s.title;
       $('#chat-agent').textContent = `${s.agent_name} · ${s.model}`;
       setStatus(s.status, s.error);
@@ -1073,6 +1309,7 @@ function renderChat(sessionId) {
       }
       if (s.prompt && !$('#chat-messages').children.length) addUserBubble(s.prompt);
       const m = await api.get(`/api/sessions/${sessionId}/messages`);
+      if (sessionId !== activeSessionId) return;
       if (m.result) {
         renderTranscript(m.result);
         m.events.forEach(ev => {
@@ -1328,7 +1565,7 @@ async function agentModal(agentId) {
   const a = isEdit ? await api.get(`/api/agents/${agentId}`) : {
     name: '', description: '', mode: 'primary', model: 'deepseek/deepseek-chat',
     temperature: '', system_prompt: '', permission: '"allow"', is_default: false,
-    memory: '', memory_enabled: true, mcp: [], skills: [], calls: [],
+    memory: '', memory_enabled: true, issues_own_only: false, mcp: [], skills: [], calls: [],
   };
   const skills = await api.get('/api/skills');
   let allAgents = [];
@@ -1343,14 +1580,17 @@ async function agentModal(agentId) {
     ? ''
     : formSelect('Проект', 'project_id', projects.map(p => ({ v: p.id, l: p.name })), a.project_id ?? (projects[0] || {}).id);
   const body = `
-    <div class="flex gap-2 mb-4 text-sm">
-      <button id="tab-general" class="px-3 py-1.5 rounded-lg bg-neutral-800">Основное</button>
-      <button id="tab-system" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">System-промпт</button>
-      <button id="tab-memory" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">Память</button>
-      <button id="tab-mcp" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">MCP (${a.mcp.length})</button>
-      <button id="tab-skills" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">Скиллы (${a.skills.length})</button>
-      <button id="tab-calls" class="px-3 py-1.5 rounded-lg hover:bg-neutral-800/60">Вызовы (${a.calls.length})</button>
-    </div>
+    <div class="flex gap-5">
+      <div id="agent-tabs-col" class="w-44 shrink-0 border-r border-neutral-800 pr-3 flex flex-col gap-1 sticky top-0 self-start">
+        <button id="tab-general" class="atab w-full text-left px-3 py-2 rounded-lg text-sm bg-neutral-800 text-white">Основное</button>
+        <button id="tab-system" class="atab w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200">System-промпт</button>
+        <button id="tab-memory" class="atab w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200">Память</button>
+        <button id="tab-issues" class="atab w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200">Issues</button>
+        <button id="tab-mcp" class="atab w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200">MCP (${a.mcp.length})</button>
+        <button id="tab-skills" class="atab w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200">Скиллы (${a.skills.length})</button>
+        <button id="tab-calls" class="atab w-full text-left px-3 py-2 rounded-lg text-sm text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200">Подчинённые (${a.calls.length})</button>
+      </div>
+      <div class="flex-1 min-w-0 h-[65vh] overflow-y-auto pr-1">
     <div id="tab-general-pane">
       ${formInput('Имя (латиница, дефисы)', 'name', a.name, 'my-agent')}
       ${formInput('Описание', 'description', a.description)}
@@ -1399,6 +1639,13 @@ async function agentModal(agentId) {
       </label>
       ${formArea('Память (долговременный текст агента — что он помнит между задачами)', 'memory', a.memory || '', 10)}
     </div>
+    <div id="tab-issues-pane" class="hidden">
+      <div class="text-xs text-neutral-500 mb-3">Настройки доступа агента к трекеру issues проекта.</div>
+      <label class="flex items-start gap-2 text-sm mb-3">
+        <input type="checkbox" name="issues_own_only" ${a.issues_own_only ? 'checked' : ''} class="accent-sky-600 mt-0.5">
+        <span class="text-neutral-400 text-xs">Видит только свои issues — issue_list покажет только назначенные ему, а менять, комментировать и удалять можно только их. Созданные им issues автоматически назначаются ему.</span>
+      </label>
+    </div>
     <div id="tab-mcp-pane" class="hidden">
       <div class="text-xs text-neutral-500 mb-2">Каталог — добавьте одной кнопкой:</div>
       <div id="mcp-catalog-list" class="space-y-1.5 mb-3"></div>
@@ -1425,10 +1672,13 @@ async function agentModal(agentId) {
           <span class="text-xs text-neutral-500">— ${esc(x.description || '')}</span>
         </label>`).join('') || '<div class="text-neutral-600 text-sm">Других агентов пока нет — создайте их, чтобы этот агент мог их вызывать.</div>'}
       </div>
+    </div>
+      </div>
     </div>`;
   openModal(isEdit ? `Агент: ${a.name}` : 'Новый агент', body, async (close) => {
-    const f = { ...readForm($('#tab-general-pane')), ...readForm($('#tab-system-pane')), ...readForm($('#tab-memory-pane')) };
+    const f = { ...readForm($('#tab-general-pane')), ...readForm($('#tab-system-pane')), ...readForm($('#tab-memory-pane')), ...readForm($('#tab-issues-pane')) };
     f.is_default = $('[name="is_default"]', $('#tab-general-pane')).checked;
+    f.issues_own_only = $('[name="issues_own_only"]', $('#tab-issues-pane')).checked;
     f.memory_enabled = $('[name="memory_enabled"]', $('#tab-memory-pane')).checked;
     f.project_id = currentProject || f.project_id || null;
     const mcp = $$('#mcp-list [data-mcp]').map(el => {
@@ -1450,7 +1700,7 @@ async function agentModal(agentId) {
     await api.put(`/api/agents/${agentId}/calls`, { target_ids: callIds });
     close();
     await refreshAgentsList();
-  });
+  }, 'max-w-5xl');
   (function initModelWidget() {
     const pane = $('#tab-general-pane');
     const rawModel = a.model || '';
@@ -1580,12 +1830,12 @@ async function agentModal(agentId) {
     updateModelSummary();
     loadModelsForProvider(curProvider);
   })();
-  const tabs = { 'tab-general': 'tab-general-pane', 'tab-system': 'tab-system-pane', 'tab-memory': 'tab-memory-pane', 'tab-mcp': 'tab-mcp-pane', 'tab-skills': 'tab-skills-pane', 'tab-calls': 'tab-calls-pane' };
+  const tabs = { 'tab-general': 'tab-general-pane', 'tab-system': 'tab-system-pane', 'tab-memory': 'tab-memory-pane', 'tab-issues': 'tab-issues-pane', 'tab-mcp': 'tab-mcp-pane', 'tab-skills': 'tab-skills-pane', 'tab-calls': 'tab-calls-pane' };
   Object.entries(tabs).forEach(([btn, pane]) => {
     $(`#${btn}`).onclick = () => {
       Object.values(tabs).forEach(p => $(`#${p}`).classList.add('hidden'));
       $(`#${pane}`).classList.remove('hidden');
-      Object.entries(tabs).forEach(([b, p]) => $(`#${b}`).className = `px-3 py-1.5 rounded-lg ${b === btn ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}`);
+      Object.entries(tabs).forEach(([b, p]) => $(`#${b}`).className = `atab w-full text-left px-3 py-2 rounded-lg text-sm ${b === btn ? 'bg-neutral-800 text-white' : 'text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200'}`);
     };
   });
   $('#add-mcp').onclick = () => {
@@ -1737,10 +1987,20 @@ function skillModal(s) {
 const ISSUE_STATUSES = {
   open: { label: 'открыт', cls: 'bg-sky-900/60 text-sky-300 border-sky-800' },
   in_progress: { label: 'в работе', cls: 'bg-purple-900/60 text-purple-300 border-purple-800' },
+  review: { label: 'ревью', cls: 'bg-amber-900/60 text-amber-300 border-amber-800' },
   done: { label: 'готово', cls: 'bg-emerald-900/60 text-emerald-300 border-emerald-800' },
+  cancelled: { label: 'отменено', cls: 'bg-neutral-800 text-neutral-400 border-neutral-700' },
+};
+const ISSUE_PRIORITIES = {
+  low: { label: 'низкий', cls: 'bg-neutral-800 text-neutral-400 border-neutral-700' },
+  medium: { label: 'средний', cls: 'bg-sky-900/60 text-sky-300 border-sky-800' },
+  high: { label: 'высокий', cls: 'bg-orange-900/60 text-orange-300 border-orange-800' },
+  critical: { label: 'критичный', cls: 'bg-red-900/60 text-red-300 border-red-800' },
 };
 let issuesCache = [];
-const issueFilters = { q: '', tag: '', tab: 'open' };
+const issueFilters = { q: '', tag: '', tab: 'all', priority: '' };
+
+const ISSUE_TABS = [['all', 'Все'], ...Object.entries(ISSUE_STATUSES).map(([v, s]) => [v, s.label])];
 
 async function renderIssues() {
   const main = $('#main');
@@ -1749,7 +2009,7 @@ async function renderIssues() {
       <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
         <div>
           <div class="text-lg font-semibold">Issues</div>
-          <div class="text-xs text-neutral-500">Трекер задач проекта: агенты заводят сюда issues инструментами vibeprod (issue_create), вы видите их здесь.</div>
+          <div class="text-xs text-neutral-500">Трекер задач проекта: статус, приоритет, исполнитель, комментарии. Агенты заводят issues инструментами vibeprod (issue_create / issue_comment).</div>
         </div>
         <button id="new-issue" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый issue</button>
       </div>
@@ -1760,17 +2020,21 @@ async function renderIssues() {
           <option value="">все теги</option>
           ${[...new Set(issuesCache.flatMap(i => i.tags || []))].sort().map(t => `<option value="${esc(t)}" ${issueFilters.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
+        <select id="issue-priority-filter" class="bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm">
+          <option value="">все приоритеты</option>
+          ${Object.entries(ISSUE_PRIORITIES).map(([v, p]) => `<option value="${v}" ${issueFilters.priority === v ? 'selected' : ''}>${p.label}</option>`).join('')}
+        </select>
         <span id="issue-count" class="text-xs text-neutral-500"></span>
       </div>
-      <div class="flex items-center gap-1 px-6 pt-3 border-b border-neutral-800">
-        <button id="issue-tab-open" class="issue-tab px-4 py-2 rounded-t-lg text-sm font-medium border-b-2">Открытые <span id="issue-tab-open-count" class="text-neutral-500 font-normal"></span></button>
-        <button id="issue-tab-closed" class="issue-tab px-4 py-2 rounded-t-lg text-sm font-medium border-b-2">Закрытые <span id="issue-tab-closed-count" class="text-neutral-500 font-normal"></span></button>
+      <div class="flex items-center gap-1 px-6 pt-3 border-b border-neutral-800 flex-wrap">
+        ${ISSUE_TABS.map(([v, label]) => `<button id="issue-tab-${v}" class="issue-tab px-4 py-2 rounded-t-lg text-sm font-medium border-b-2">${label} <span id="issue-tab-${v}-count" class="text-neutral-500 font-normal"></span></button>`).join('')}
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="issues-list"></div>
     </div>`;
   $('#new-issue').onclick = () => issueModal(null);
   $('#issue-search').oninput = (e) => { issueFilters.q = e.target.value.trim(); renderIssuesList(); };
   $('#issue-tag-filter').onchange = (e) => { issueFilters.tag = e.target.value; renderIssuesList(); };
+  $('#issue-priority-filter').onchange = (e) => { issueFilters.priority = e.target.value; renderIssuesList(); };
   const setTab = (tab) => {
     issueFilters.tab = tab;
     $$('.issue-tab').forEach(b => {
@@ -1783,20 +2047,19 @@ async function renderIssues() {
     });
     renderIssuesList();
   };
-  $('#issue-tab-open').onclick = () => setTab('open');
-  $('#issue-tab-closed').onclick = () => setTab('closed');
+  ISSUE_TABS.forEach(([v]) => { $(`#issue-tab-${v}`).onclick = () => setTab(v); });
   setTab(issueFilters.tab);
   await refreshIssues();
 }
 
 async function refreshIssues() {
   try { issuesCache = await api.get('/api/issues' + projQuery()); } catch (e) { return; }
-  const openCount = issuesCache.filter(i => i.status !== 'done').length;
-  const closedCount = issuesCache.length - openCount;
-  const oc = $('#issue-tab-open-count');
-  const cc = $('#issue-tab-closed-count');
-  if (oc) oc.textContent = openCount ? `· ${openCount}` : '';
-  if (cc) cc.textContent = closedCount ? `· ${closedCount}` : '';
+  const allCount = issuesCache.length;
+  ISSUE_TABS.forEach(([v]) => {
+    const cnt = v === 'all' ? allCount : issuesCache.filter(i => i.status === v).length;
+    const el = $(`#issue-tab-${v}-count`);
+    if (el) el.textContent = cnt ? `· ${cnt}` : '';
+  });
   renderIssuesList();
   const tagSel = $('#issue-tag-filter');
   if (tagSel) {
@@ -1810,11 +2073,11 @@ function renderIssuesList() {
   if (!el) return;
   const q = issueFilters.q.toLowerCase();
   const rows = issuesCache.filter(i => {
-    if (issueFilters.tab === 'open' && i.status === 'done') return false;
-    if (issueFilters.tab === 'closed' && i.status !== 'done') return false;
+    if (issueFilters.tab !== 'all' && i.status !== issueFilters.tab) return false;
     if (issueFilters.tag && !(i.tags || []).includes(issueFilters.tag)) return false;
+    if (issueFilters.priority && i.priority !== issueFilters.priority) return false;
     if (q) {
-      const hay = `${i.title} ${i.description || ''} ${(i.tags || []).join(' ')}`.toLowerCase();
+      const hay = `${i.title} ${i.description || ''} ${(i.tags || []).join(' ')} ${i.assignee_name || ''} ${(i.comments || []).map(c => c.text).join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -1827,14 +2090,19 @@ function renderIssuesList() {
   }
   el.innerHTML = rows.map(i => {
     const st = ISSUE_STATUSES[i.status] || ISSUE_STATUSES.open;
+    const pr = ISSUE_PRIORITIES[i.priority] || ISSUE_PRIORITIES.medium;
+    const author = i.created_by && i.created_by !== 'manual' ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400" title="заведено агентом ${esc(i.created_by)}">агент</span>` : '';
+    const assignee = i.assignee_name ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-sky-300" title="исполнитель">исп.: ${esc(i.assignee_name)}</span>` : '';
+    const comments = i.comments || [];
     return `
     <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-4 mb-3">
       <div class="flex items-start justify-between gap-3">
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2 py-0.5 rounded border text-xs ${st.cls}">${st.label}</span>
+            <span class="px-2 py-0.5 rounded border text-xs ${pr.cls}">${pr.label}</span>
             <span class="font-semibold">${esc(i.title)}</span>
-            ${i.created_by === 'agent' ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400" title="заведено агентом">агент</span>' : ''}
+            ${author}${assignee}
           </div>
           <div class="text-xs text-neutral-500 mt-1">#${i.id} · ${esc(i.created_at || '')}${i.updated_at && i.updated_at !== i.created_at ? ` · изменено ${esc(i.updated_at)}` : ''}</div>
         </div>
@@ -1847,6 +2115,11 @@ function renderIssuesList() {
         </div>
       </div>
       ${i.description ? `<details class="mt-2"><summary class="text-xs text-neutral-400 cursor-pointer select-none">описание</summary><div class="md mt-2 text-sm leading-relaxed whitespace-pre-wrap">${esc(i.description)}</div></details>` : ''}
+      ${comments.length ? `<details class="mt-2"><summary class="text-xs text-neutral-400 cursor-pointer select-none">комментарии (${comments.length})</summary><div class="mt-2 space-y-2">${comments.map(c => `
+        <div class="rounded-lg bg-neutral-900 border border-neutral-800 p-2.5">
+          <div class="text-[10px] text-neutral-500 mb-1">${c.agent_name ? `агент ${esc(c.agent_name)}` : 'вручную'} · ${esc(c.created_at || '')}</div>
+          <div class="text-sm whitespace-pre-wrap">${esc(c.text)}</div>
+        </div>`).join('')}</div></details>` : ''}
       ${(i.tags || []).length ? `<div class="flex flex-wrap gap-1.5 mt-2">${i.tags.map(t => `<button class="tag-chip px-2 py-0.5 rounded-full bg-neutral-800 text-xs text-neutral-300 hover:bg-neutral-700" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
     </div>`;
   }).join('');
@@ -1871,23 +2144,45 @@ function renderIssuesList() {
   });
 }
 
-function issueModal(row) {
+async function issueModal(row) {
   const isEdit = !!row;
-  row = row || { title: '', description: '', status: 'open', tags: [] };
+  row = row || { title: '', description: '', status: 'open', priority: 'medium', tags: [], comments: [] };
+  let agents = [];
+  try { agents = await api.get('/api/agents' + projQuery()); } catch {}
+  const assigneeOpts = [{ v: '', l: '— без исполнителя —' }, ...agents.map(a => ({ v: a.id, l: a.name }))];
   const projectSelect = currentProject ? '' : formSelect('Проект', 'project_id', projectsCache.map(p => ({ v: p.id, l: p.name })), currentProject);
+  const comments = isEdit ? `
+    ${(row.comments || []).length ? `<div class="mb-3 space-y-2">${row.comments.map(c => `
+      <div class="rounded-lg bg-neutral-900 border border-neutral-800 p-2.5">
+        <div class="text-[10px] text-neutral-500 mb-1">${c.agent_name ? `агент ${esc(c.agent_name)}` : 'вручную'} · ${esc(c.created_at || '')}</div>
+        <div class="text-sm whitespace-pre-wrap">${esc(c.text)}</div>
+      </div>`).join('')}</div>` : ''}
+    ${formArea('Новый комментарий', 'comment', '', 3, 'Прогресс, вопросы, заметки…')}
+  ` : '';
   openModal(isEdit ? `Issue #${row.id}` : 'Новый issue', `
     ${formInput('Название', 'title', row.title, 'Коротко о задаче')}
     ${formArea('Описание', 'description', row.description, 6, 'Контекст, шаги, ожидания…')}
-    ${formSelect('Статус', 'status', Object.entries(ISSUE_STATUSES).map(([v, s]) => ({ v, l: s.label })), row.status)}
+    <div class="grid grid-cols-2 gap-3">
+      ${formSelect('Статус', 'status', Object.entries(ISSUE_STATUSES).map(([v, s]) => ({ v, l: s.label })), row.status)}
+      ${formSelect('Приоритет', 'priority', Object.entries(ISSUE_PRIORITIES).map(([v, p]) => ({ v, l: p.label })), row.priority || 'medium')}
+    </div>
+    ${formSelect('Исполнитель (агент)', 'assignee_id', assigneeOpts, row.assignee_id ?? '')}
     ${formInput('Теги (через запятую)', 'tags', (row.tags || []).join(', '), 'баг, рефакторинг')}
-    ${projectSelect}`, async (close) => {
+    ${projectSelect}${comments}`, async (close) => {
       const f = readForm($('#modal-body'));
       if (!f.title.trim()) throw new Error('Название обязательно');
-      const payload = { title: f.title, description: f.description, status: f.status, tags: f.tags.split(',').map(t => t.trim()).filter(Boolean) };
+      const payload = {
+        title: f.title, description: f.description, status: f.status, priority: f.priority,
+        assignee_id: f.assignee_id === '' ? null : +f.assignee_id,
+        tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
+      };
       if (isEdit) await api.put(`/api/issues/${row.id}`, payload);
       else {
         if (currentProject) payload.project_id = currentProject;
         await api.post('/api/issues', payload);
+      }
+      if (isEdit && f.comment && f.comment.trim()) {
+        await api.post(`/api/issues/${row.id}/comments`, { text: f.comment.trim() });
       }
       close();
       await refreshIssues();
@@ -2313,6 +2608,7 @@ async function renderAutomation(tab = 'webhooks') {
         <div class="flex gap-2 text-sm">
           <button id="auto-tab-webhooks" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'webhooks' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">Webhook-и</button>
           <button id="auto-tab-out" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'outwebhooks' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">Исходящие</button>
+          <button id="auto-tab-automations" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'automations' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">По событиям</button>
           <button id="auto-tab-schedules" class="auto-tab px-3 py-1.5 rounded-lg ${tab === 'schedules' ? 'bg-neutral-800' : 'hover:bg-neutral-800/60'}">Расписания</button>
         </div>
       </div>
@@ -2320,6 +2616,7 @@ async function renderAutomation(tab = 'webhooks') {
     </div>`;
   $('#auto-tab-webhooks').onclick = () => showView('webhooks');
   $('#auto-tab-out').onclick = () => showView('outwebhooks');
+  $('#auto-tab-automations').onclick = () => showView('automations');
   $('#auto-tab-schedules').onclick = () => showView('schedules');
   const content = $('#automation-content');
   if (tab === 'schedules') {
@@ -2328,6 +2625,8 @@ async function renderAutomation(tab = 'webhooks') {
     await refreshSchedules();
   } else if (tab === 'outwebhooks') {
     await refreshOutWebhooks(content);
+  } else if (tab === 'automations') {
+    await refreshAutomations(content);
   } else {
     await refreshWebhooks(content);
   }
@@ -2871,7 +3170,7 @@ async function outDeliveriesModal(w) {
   const close = () => root.innerHTML = '';
   $('#deliveries-close').onclick = close;
   $('#modal-close').onclick = close;
-  $('#modal-overlay').onclick = (e) => { if (e.target.id === 'modal-overlay') close(); };
+  bindModalOverlayClose(close);
   const load = async () => {
     let rows;
     try { rows = await api.get(`/api/out-webhooks/${w.id}/deliveries`); } catch (e) { toast(e.message, 'error'); return; }
@@ -2901,6 +3200,184 @@ async function outDeliveriesModal(w) {
     });
   };
   $('#deliveries-refresh').onclick = load;
+  await load();
+}
+
+/* ---------- automations: события → агенты ---------- */
+const RUN_META = {
+  running: { label: 'запущена', cls: 'bg-sky-700' },
+  queued: { label: 'в очереди', cls: 'bg-neutral-700' },
+  failed: { label: 'ошибка', cls: 'bg-red-700' },
+};
+function runBadge(status) {
+  const m = RUN_META[status] || RUN_META.queued;
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${m.cls}">${m.label}</span>`;
+}
+
+async function refreshAutomations(content) {
+  let data;
+  try { data = await api.get('/api/automations' + projQuery()); } catch (e) { return; }
+  content.innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-xs text-neutral-500 max-w-xl">Автоматизация — правило, которое запускает агента при событии брокера (сессия завершилась/упала, сработало расписание, пришёл webhook). В промпте можно использовать данные события: {title}, {status}, {prompt}, {agent_name}, {project_name}, {error}, {url}, {session_id}, а также {event} и {json} — полный пейлоад. Можно строить цепочки: одна сессия завершилась — стартует следующая.</div>
+      <button id="new-automation" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">Новое правило</button>
+    </div>
+    <div id="automations-list"></div>`;
+  $('#new-automation').onclick = () => automationModal();
+  const list = $('#automations-list');
+  if (!data.length) {
+    list.innerHTML = `<div class="text-neutral-500 text-sm">Правил нет. Создайте — и агенты будут сами запускаться при событиях.</div>`;
+    return;
+  }
+  list.innerHTML = data.map(a => `
+    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-5 mb-3">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0">
+          <div class="font-semibold flex items-center gap-2 flex-wrap">
+            <span>${esc(a.name || 'Без названия')}</span>
+            ${a.enabled ? '<span class="text-xs px-2 py-0.5 rounded bg-emerald-900/50">вкл</span>' : '<span class="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-500">выкл</span>'}
+          </div>
+          <div class="text-xs text-neutral-500 mt-0.5">агент: ${esc(a.agent_name || '—')}${a.project_name && !currentProject ? ` · проект: ${esc(a.project_name)}` : ''}${a.last_run ? ` · был запуск: ${esc(a.last_run)}` : ''}</div>
+        </div>
+        <div class="flex gap-2 text-xs shrink-0 ml-3">
+          <button class="toggle px-3 py-1.5 rounded-lg border ${a.enabled ? 'border-red-900 text-red-400 hover:bg-red-950' : 'border-emerald-800 text-emerald-400 hover:bg-emerald-950'}" data-id="${a.id}">${a.enabled ? 'Выключить' : 'Включить'}</button>
+          <button class="test px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">тест</button>
+          <button class="log px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">журнал</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">изменить</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${a.id}">удалить</button>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-3 text-xs">
+        ${(a.events || []).map(e => `<span class="px-2 py-1 rounded bg-neutral-800">${esc(OUT_EVENT_LABELS[e] || e)}</span>`).join('')}
+        ${a.chain ? '<span class="px-2 py-1 rounded bg-purple-900/50">каскады</span>' : ''}
+        ${a.last_run_status ? runBadge(a.last_run_status) : ''}
+      </div>
+      ${a.prompt ? `<pre class="mt-3 text-xs text-neutral-500 whitespace-pre-wrap border-l-2 border-neutral-700 pl-2">${esc(a.prompt.slice(0, 300))}${a.prompt.length > 300 ? '…' : ''}</pre>` : ''}
+    </div>`).join('');
+  $$('.toggle', list).forEach(b => b.onclick = async () => {
+    const row = data.find(a => a.id === +b.dataset.id);
+    if (!row) return;
+    await api.put(`/api/automations/${row.id}`, { enabled: !row.enabled });
+    toast(row.enabled ? 'Правило выключено' : 'Правило включено', 'ok');
+    await refreshAutomations($('#automation-content'));
+  });
+  $$('.test', list).forEach(b => b.onclick = async () => {
+    try {
+      const r = await api.post(`/api/automations/${b.dataset.id}/test`);
+      toast(r.ok ? `Правило сработало: сессия ${r.session_id}` : `Ошибка: ${r.status}`, r.ok ? 'ok' : 'error');
+    } catch (e) { toast(e.message, 'error'); }
+    await refreshAutomations($('#automation-content'));
+  });
+  $$('.log', list).forEach(b => b.onclick = () => {
+    const row = data.find(a => a.id === +b.dataset.id);
+    automationRunsModal(row);
+  });
+  $$('.edit', list).forEach(b => b.onclick = () => {
+    const row = data.find(a => a.id === +b.dataset.id);
+    automationModal(row);
+  });
+  $$('.del', list).forEach(b => b.onclick = async () => {
+    if (!confirm('Удалить правило?')) return;
+    await api.del(`/api/automations/${b.dataset.id}`);
+    await refreshAutomations($('#automation-content'));
+  });
+}
+
+async function automationModal(a) {
+  const isEdit = !!a;
+  const agents = await api.get('/api/agents' + projQuery());
+  if (!isEdit && !agents.length) return toast('Сначала создайте агента', 'error');
+  a = a || { name: '', agent_id: agents[0]?.id, events: ['session.completed', 'session.failed'], prompt: '', enabled: true };
+  const projects = currentProject ? [] : await api.get('/api/projects').catch(() => []);
+  const projSel = currentProject
+    ? ''
+    : formSelect('Проект', 'project_id', projects.map(x => ({ v: x.id, l: x.name })), isEdit ? a.project_id : (projects[0] || {}).id);
+  const eventBoxes = Object.entries(OUT_EVENT_LABELS).filter(([v]) => v !== 'webhook.test').map(([v, l]) => `
+    <label class="flex items-center gap-1.5 text-xs">
+      <input type="checkbox" class="evcb accent-sky-600" data-ev="${v}" ${(a.events || []).includes(v) ? 'checked' : ''}>
+      <span class="text-neutral-400">${l}</span>
+    </label>`).join('');
+  openModal(isEdit ? `Правило: ${a.name || 'Без названия'}` : 'Новое правило', `
+    ${formInput('Название (необязательно)', 'name', a.name, 'Реакция на завершение сессии')}
+    ${formSelect('Агент', 'agent_id', agents.map(x => ({ v: x.id, l: x.name })), a.agent_id)}
+    ${projSel}
+    <div class="text-xs text-neutral-400 mb-2">Запускать при событиях:</div>
+    <div class="grid grid-cols-2 gap-1.5 mb-3">${eventBoxes}</div>
+    ${formArea('Промпт (шаблон)', 'prompt', a.prompt, 7, 'Событие {event}.\n\nДанные события:\n{json}')}
+    <div class="text-xs text-neutral-500 mb-3">Плейсхолдеры: {event}, {json} и поля события — {title}, {status}, {prompt}, {agent_name}, {project_name}, {error}, {url}, {session_id}. Неизвестные ключи заменяются пустой строкой.</div>
+    <label class="flex items-center gap-2 text-sm mb-3">
+      <input type="checkbox" name="enabled" ${a.enabled ? 'checked' : ''} class="accent-sky-600">
+      <span class="text-neutral-400 text-xs">включено</span>
+    </label>
+    <label class="flex items-center gap-2 text-sm mb-3">
+      <input type="checkbox" name="chain" ${a.chain ? 'checked' : ''} class="accent-sky-600">
+      <span class="text-neutral-400 text-xs">позволять каскады — реагировать и на сессии, запущенные автоматизациями (выключено по умолчанию, защищает от циклов)</span>
+    </label>`,
+    async (close) => {
+      const f = readForm($('#modal-body'));
+      if (!f.prompt.trim()) throw new Error('Промпт обязателен');
+      f.agent_id = +f.agent_id;
+      f.events = $$('.evcb', $('#modal-body')).filter(c => c.checked).map(c => c.dataset.ev);
+      if (!f.events.length) throw new Error('Выберите хотя бы одно событие');
+      f.enabled = $('[name="enabled"]', $('#modal-body')).checked;
+      f.chain = $('[name="chain"]', $('#modal-body')).checked;
+      if (currentProject) f.project_id = currentProject;
+      if (isEdit) await api.put(`/api/automations/${a.id}`, f);
+      else await api.post('/api/automations', f);
+      close();
+      const content = $('#automation-content');
+      if (content) await refreshAutomations(content);
+    });
+}
+
+async function automationRunsModal(a) {
+  const root = $('#modal-root');
+  root.innerHTML = `
+    <div class="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4" id="modal-overlay">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
+          <div class="font-semibold truncate">Журнал запусков: ${esc(a.name || 'Без названия')}</div>
+          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">&times;</button>
+        </div>
+        <div class="p-5 overflow-y-auto" id="runs-body"><div class="text-neutral-500 text-sm">загрузка…</div></div>
+        <div class="px-5 py-3 border-t border-neutral-800 flex justify-end gap-2">
+          <button id="runs-refresh" class="px-4 py-2 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm">Обновить</button>
+          <button id="runs-close" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Закрыть</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => root.innerHTML = '';
+  $('#runs-close').onclick = close;
+  $('#modal-close').onclick = close;
+  bindModalOverlayClose(close);
+  const load = async () => {
+    let rows;
+    try { rows = await api.get(`/api/automations/${a.id}/runs`); } catch (e) { toast(e.message, 'error'); return; }
+    const body = $('#runs-body');
+    if (!body) return;
+    if (!rows.length) { body.innerHTML = '<div class="text-neutral-500 text-sm">Запусков ещё не было.</div>'; return; }
+    body.innerHTML = rows.map(r => `
+      <div class="rounded-lg border border-neutral-800 p-3 mb-2">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="text-sm flex items-center gap-2 flex-wrap">
+            <span class="mono text-sky-300 text-xs">${esc(r.event)}</span>
+            ${runBadge(r.status)}
+            ${r.session_id ? `<a class="text-xs text-sky-400 hover:underline" href="#sessions/${esc(r.session_id)}" data-session-id="${esc(r.session_id)}">сессия</a>` : ''}
+          </div>
+          <span class="text-xs text-neutral-500">${esc(r.started_at || '')}</span>
+        </div>
+        ${r.error ? `<div class="text-xs text-red-400 mt-1 break-all">${esc(r.error)}</div>` : ''}
+        ${r.payload && r.payload.title ? `<div class="text-xs text-neutral-500 mt-1 truncate">${esc(String(r.payload.title))}</div>` : ''}
+      </div>`).join('');
+    $$('a[data-session-id]', body).forEach(link => {
+      link.onclick = (e) => {
+        e.preventDefault();
+        close();
+        showView('sessions', link.dataset.sessionId);
+      };
+    });
+  };
+  $('#runs-refresh').onclick = load;
   await load();
 }
 
@@ -3501,8 +3978,8 @@ function projectModal(p, opts = {}) {
   };
   await loadProjectMenu();
   try {
-    const h = await fetch('/api/sessions').then(r => r.json());
-    $('#server-info').textContent = `сессий: ${h.length}`;
+    const h = await fetch('/api/sessions?page=1&page_size=1').then(r => r.json());
+    $('#server-info').textContent = `сессий: ${h.total ?? (Array.isArray(h) ? h.length : 0)}`;
   } catch {}
   const [view, arg] = (location.hash.slice(1) || 'home').split('/');
   showView(view, arg);
