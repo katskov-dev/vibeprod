@@ -6,7 +6,9 @@
   между сессиями; включается/выключается в настройках агента;
 - Telegram: агент может написать пользователю и прислать файл (файлы проекта,
   отчёты, скриншоты) — канал настраивается в «Автоматизация → Каналы»;
-- issues проекта и скачивание файлов проекта в workspace.
+- issues проекта (create/list/get/update/comment/comment_delete/delete),
+  вызовы других агентов (agent_call_list/agent_run/agent_status) и обмен
+  файлами с хранилищем проекта (file_download/file_upload).
 
 Протокол — streamable HTTP поверх JSON-RPC, как у guardian. Доступ к файлам
 воркера: broker читает workspace сессии на хосте (bind-mount), путь берётся из
@@ -14,6 +16,7 @@ X-Vibeprod-Session заголовка.
 """
 import asyncio
 import json
+import mimetypes
 import os
 from pathlib import PurePosixPath
 
@@ -361,6 +364,20 @@ def h_issue_list(args, ctx):
     return [_issue_out(r) for r in rows]
 
 
+def h_issue_get(args, ctx):
+    iid = args.get("id")
+    try:
+        iid = int(iid)
+    except (TypeError, ValueError):
+        raise ToolError("id: целое число")
+    row = _issue_row(iid)
+    if not row:
+        raise ToolError(f"issue {iid} не найден")
+    me = _issue_agent(ctx)
+    _issue_own_check(me, row)
+    return _issue_out(row)
+
+
 def h_issue_update(args, ctx):
     iid = args.get("id")
     try:
@@ -422,6 +439,29 @@ def h_issue_comment(args, ctx):
     )
     db.execute("UPDATE issues SET updated_at=datetime('now') WHERE id=?", (iid,))
     return db.query_one("SELECT * FROM issue_comments WHERE id=?", (cid,))
+
+
+def h_issue_comment_delete(args, ctx):
+    iid = args.get("issue_id")
+    cid = args.get("comment_id")
+    try:
+        iid = int(iid)
+        cid = int(cid)
+    except (TypeError, ValueError):
+        raise ToolError("issue_id и comment_id: целые числа")
+    row = db.query_one("SELECT * FROM issues WHERE id=?", (iid,))
+    if not row:
+        raise ToolError(f"issue {iid} не найден")
+    me = _issue_agent(ctx)
+    _issue_own_check(me, row)
+    c = db.query_one("SELECT * FROM issue_comments WHERE id=? AND issue_id=?", (cid, iid))
+    if not c:
+        raise ToolError(f"комментарий {cid} не найден")
+    if me and c["agent_id"] is not None and int(c["agent_id"]) != int(me["agent_id"]):
+        raise ToolError("можно удалять только свои комментарии")
+    db.execute("DELETE FROM issue_comments WHERE id=?", (cid,))
+    db.execute("UPDATE issues SET updated_at=datetime('now') WHERE id=?", (iid,))
+    return {"ok": True}
 
 
 def h_issue_delete(args, ctx):
@@ -507,6 +547,52 @@ def h_file_download(args, ctx):
         target.unlink(missing_ok=True)
         raise
     return {"ok": True, "path": str(target.relative_to(ws)), "name": target.name, "size": written}
+
+
+def h_file_upload(args, ctx):
+    """Загружает файл из workspace воркера (или текст) в файлы проекта (MinIO)."""
+    pid = ctx.get("project_id")
+    if pid is None:
+        raise ToolError("сессия не привязана к проекту — файлы проекта не определить")
+    sid = ctx.get("session_id")
+    if not sid:
+        raise ToolError("загрузка доступна только из сессии воркера")
+    path = str(args.get("path") or "").strip()
+    filename = (args.get("filename") or "").strip()
+    if path:
+        _, target = _workspace_file_path(sid, path, must_exist=True)
+        if target.stat().st_size > DOWNLOAD_LIMIT:
+            raise ToolError(f"файл больше {DOWNLOAD_LIMIT // (1024 * 1024)} МБ")
+        data = target.read_bytes()
+        filename = filename or target.name
+    else:
+        data = (args.get("content") or "").encode("utf-8")
+        filename = filename or "message.txt"
+        if len(data) > DOWNLOAD_LIMIT:
+            raise ToolError(f"контент больше {DOWNLOAD_LIMIT // (1024 * 1024)} МБ")
+    if not filename:
+        raise ToolError("имя файла не определено — укажите path или filename")
+    dest = str(args.get("dest") or "").strip().lstrip("/")
+    if not dest:
+        dest = PurePosixPath(filename).name
+    else:
+        if ".." in PurePosixPath(dest).parts:
+            raise ToolError("dest: недопустимый путь")
+        if dest.endswith("/"):
+            dest += PurePosixPath(filename).name
+        dest = str(PurePosixPath(dest))
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    try:
+        files_store.upload(pid, dest, data, content_type, size=len(data))
+    except Exception as exc:
+        raise ToolError(f"не удалось сохранить {dest}: {exc}")
+    return {
+        "ok": True,
+        "path": dest,
+        "name": PurePosixPath(dest).name,
+        "size": len(data),
+        "url": files_store.content_url(pid, dest),
+    }
 
 
 # ---------- вызовы других агентов ----------
@@ -649,10 +735,13 @@ HANDLERS = {
     "memory_set": h_memory_set,
     "issue_create": h_issue_create,
     "issue_list": h_issue_list,
+    "issue_get": h_issue_get,
     "issue_update": h_issue_update,
     "issue_comment": h_issue_comment,
+    "issue_comment_delete": h_issue_comment_delete,
     "issue_delete": h_issue_delete,
     "file_download": h_file_download,
+    "file_upload": h_file_upload,
     "agent_call_list": h_agent_call_list,
     "agent_run": h_agent_run,
     "agent_status": h_agent_status,
@@ -762,6 +851,22 @@ BROKER_TOOLS = [
         ["id", "text"],
     ),
     _tool(
+        "issue_get",
+        "Получить один issue по id со всеми комментариями (например, чтобы "
+        "посмотреть свежие обсуждения конкретной задачи).",
+        {"id": _prop("integer", "id issue")},
+        ["id"],
+    ),
+    _tool(
+        "issue_comment_delete",
+        "Удалить свой комментарий к issue (только свои комментарии; чужие удалить нельзя).",
+        {
+            "issue_id": _prop("integer", "id issue"),
+            "comment_id": _prop("integer", "id комментария"),
+        },
+        ["issue_id", "comment_id"],
+    ),
+    _tool(
         "issue_delete",
         "Удалить issue. Требует подтверждения пользователя.",
         {"id": _prop("integer", "id issue")},
@@ -780,6 +885,20 @@ BROKER_TOOLS = [
             "dest": _prop("string", "абсолютный путь назначения в workspace воркера (/workspace/...), необязательно"),
         },
         ["path"],
+    ),
+    _tool(
+        "file_upload",
+        "Сохранить файл из workspace воркера в файлы проекта (появится в разделе «Файлы»). "
+        "Источник: path — путь в workspace воркера (например 'shots/скрин.png'), либо content + filename "
+        "для текста. dest — относительный путь назначения в файлах проекта (например 'отчёты/итог.md'), "
+        "по умолчанию — корень под именем файла.",
+        {
+            "path": _prop("string", "путь к файлу относительно workspace воркера (если content не задан)"),
+            "content": _prop("string", "содержимое файла текстом (если path не задан)"),
+            "filename": _prop("string", "имя файла (для content; по умолчанию из path)"),
+            "dest": _prop("string", "путь назначения в файлах проекта, необязательно"),
+        },
+        [],
     ),
     _tool(
         "agent_call_list",

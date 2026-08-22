@@ -138,6 +138,11 @@ def create_issue(payload: dict):
     return _issue_out(_issue_row(iid))
 
 
+@router.get("/issues/{issue_id}")
+def get_issue(issue_id: int):
+    return _issue_out(_issue_row(issue_id))
+
+
 @router.put("/issues/{issue_id}")
 def update_issue(issue_id: int, payload: dict):
     row = db.query_one("SELECT * FROM issues WHERE id=?", (issue_id,))
@@ -192,3 +197,16 @@ def add_comment(issue_id: int, payload: dict):
     )
     db.execute("UPDATE issues SET updated_at=datetime('now') WHERE id=?", (issue_id,))
     return db.query_one("SELECT * FROM issue_comments WHERE id=?", (cid,))
+
+
+@router.delete("/issues/{issue_id}/comments/{comment_id}")
+def delete_comment(issue_id: int, comment_id: int):
+    if not db.query_one("SELECT id FROM issues WHERE id=?", (issue_id,)):
+        raise HTTPException(404, "issue не найден")
+    if not db.query_one(
+        "SELECT id FROM issue_comments WHERE id=? AND issue_id=?", (comment_id, issue_id)
+    ):
+        raise HTTPException(404, "комментарий не найден")
+    db.execute("DELETE FROM issue_comments WHERE id=?", (comment_id,))
+    db.execute("UPDATE issues SET updated_at=datetime('now') WHERE id=?", (issue_id,))
+    return {"ok": True}

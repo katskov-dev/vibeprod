@@ -45,6 +45,10 @@ const STATUS_META = {
   aborted:   { label: 'прервано',  cls: 'bg-orange-700' },
   expired:   { label: 'истёк',     cls: 'bg-neutral-600' },
 };
+const STATUS_DOTS = {
+  queued: 'bg-neutral-500', starting: 'bg-yellow-500 animate-pulse', running: 'bg-sky-500 animate-pulse',
+  completed: 'bg-emerald-500', failed: 'bg-red-500', aborted: 'bg-orange-500', expired: 'bg-neutral-600',
+};
 function badge(status) {
   const m = STATUS_META[status] || STATUS_META.queued;
   return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${m.cls}">${m.label}</span>`;
@@ -615,7 +619,7 @@ async function renderSessions(openId) {
         <div class="text-base font-semibold">Сессии</div>
         <button id="new-session" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новая сессия</button>
       </div>
-      <div class="flex-1 overflow-y-auto p-3" id="sessions-list"><div class="text-neutral-500 text-sm">загрузка…</div></div>
+      <div class="flex-1 overflow-y-auto" id="sessions-list"><div class="text-neutral-500 text-sm p-4">загрузка…</div></div>
     </div>`;
   $('#new-session').onclick = async () => {
     const agents = await api.get('/api/agents' + projQuery());
@@ -648,7 +652,7 @@ async function refreshSessionsList(openId) {
   const items = data.items || [];
   const total = data.total ?? items.length;
   if (!total) {
-    el.innerHTML = `<div class="text-neutral-500 text-sm">Сессий пока нет. Создайте первую.</div>`;
+    el.innerHTML = `<div class="text-neutral-500 text-sm p-4">Сессий пока нет. Создайте первую.</div>`;
     return;
   }
   if (!items.length) {
@@ -657,23 +661,23 @@ async function refreshSessionsList(openId) {
   }
   const pages = data.pages || Math.max(1, Math.ceil(total / SESSIONS_PAGE_SIZE));
   el.innerHTML = items.map(s => {
-    const err = s.error ? ` · <span class="text-red-400">${esc(s.error.slice(0, 100))}</span>` : '';
+    const meta = STATUS_META[s.status] || STATUS_META.queued;
+    const err = s.error ? `<span class="shrink-0 text-[10px] font-bold text-red-400 border border-red-900 rounded px-1" title="${esc(s.error)}">!</span>` : '';
     return `
-    <div class="flex items-center gap-3 px-3 py-1.5 rounded-lg border border-neutral-800 hover:border-neutral-700 mb-1 cursor-pointer" data-open="${s.id}">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="truncate text-sm">${esc(s.title)}</span>
-          ${sourceBadge(s.source)}
-        </div>
-        <div class="text-[11px] text-neutral-500 truncate">${esc(s.agent_name || '—')} · ${esc(s.model || '')} · ${esc(s.created_at)}${err}</div>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        ${badge(s.status)}
-        <button class="del text-neutral-600 hover:text-red-400 text-[11px]" data-del="${s.id}">удалить</button>
+    <div class="group flex items-center gap-2.5 px-4 py-1.5 border-b border-neutral-800/60 hover:bg-neutral-900 cursor-pointer" data-open="${s.id}">
+      <span class="w-2 h-2 rounded-full shrink-0 ${STATUS_DOTS[s.status] || STATUS_DOTS.queued}" title="${esc(meta.label)}"></span>
+      <span class="flex-1 min-w-0 truncate text-sm" title="${esc(s.title)}${s.error ? ` · ${esc(s.error)}` : ''}">${esc(s.title)}</span>
+      ${err}
+      ${sourceBadge(s.source)}
+      <span class="hidden lg:inline shrink-0 text-[10px] text-neutral-500 truncate max-w-[10rem]">${esc(s.agent_name || '—')}</span>
+      <span class="hidden xl:inline shrink-0 text-[10px] text-neutral-600 mono truncate max-w-[10rem]">${esc(s.model || '')}</span>
+      <span class="hidden xl:inline shrink-0 text-[10px] text-neutral-600 mono">${esc(s.created_at)}</span>
+      <div class="shrink-0 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <button class="del p-1.5 rounded-md border border-red-900 text-red-400 hover:bg-red-950" title="удалить сессию и контейнер" data-del="${s.id}">${icon('trash', 'w-3.5 h-3.5')}</button>
       </div>
     </div>`;
   }).join('') + `
-    <div class="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800 text-xs text-neutral-500">
+    <div class="flex items-center justify-between mt-2 pt-2 px-4 pb-2 border-t border-neutral-800 text-xs text-neutral-500">
       <div>всего: ${total}</div>
       <div class="flex items-center gap-2">
         <button class="pg-prev px-2 py-1 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" ${sessionsPage <= 1 ? 'disabled' : ''}>‹ назад</button>
@@ -1992,10 +1996,10 @@ const ISSUE_STATUSES = {
   cancelled: { label: 'отменено', cls: 'bg-neutral-800 text-neutral-400 border-neutral-700' },
 };
 const ISSUE_PRIORITIES = {
-  low: { label: 'низкий', cls: 'bg-neutral-800 text-neutral-400 border-neutral-700' },
-  medium: { label: 'средний', cls: 'bg-sky-900/60 text-sky-300 border-sky-800' },
-  high: { label: 'высокий', cls: 'bg-orange-900/60 text-orange-300 border-orange-800' },
-  critical: { label: 'критичный', cls: 'bg-red-900/60 text-red-300 border-red-800' },
+  low: { label: 'низкий', cls: 'bg-neutral-800 text-neutral-400 border-neutral-700', txt: 'text-neutral-400' },
+  medium: { label: 'средний', cls: 'bg-sky-900/60 text-sky-300 border-sky-800', txt: 'text-sky-300' },
+  high: { label: 'высокий', cls: 'bg-orange-900/60 text-orange-300 border-orange-800', txt: 'text-orange-300' },
+  critical: { label: 'критичный', cls: 'bg-red-900/60 text-red-300 border-red-800', txt: 'text-red-300' },
 };
 let issuesCache = [];
 const issueFilters = { q: '', tag: '', tab: 'all', priority: '' };
@@ -2009,7 +2013,7 @@ async function renderIssues() {
       <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
         <div>
           <div class="text-lg font-semibold">Issues</div>
-          <div class="text-xs text-neutral-500">Трекер задач проекта: статус, приоритет, исполнитель, комментарии. Агенты заводят issues инструментами vibeprod (issue_create / issue_comment).</div>
+          <div class="text-xs text-neutral-500">Трекер задач проекта: статус, приоритет, исполнитель, комментарии. Клик по строке открывает issue с чатом комментариев — агенты пишут туда через issue_comment.</div>
         </div>
         <button id="new-issue" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый issue</button>
       </div>
@@ -2029,7 +2033,7 @@ async function renderIssues() {
       <div class="flex items-center gap-1 px-6 pt-3 border-b border-neutral-800 flex-wrap">
         ${ISSUE_TABS.map(([v, label]) => `<button id="issue-tab-${v}" class="issue-tab px-4 py-2 rounded-t-lg text-sm font-medium border-b-2">${label} <span id="issue-tab-${v}-count" class="text-neutral-500 font-normal"></span></button>`).join('')}
       </div>
-      <div class="flex-1 overflow-y-auto p-6" id="issues-list"></div>
+      <div class="flex-1 overflow-y-auto" id="issues-list"></div>
     </div>`;
   $('#new-issue').onclick = () => issueModal(null);
   $('#issue-search').oninput = (e) => { issueFilters.q = e.target.value.trim(); renderIssuesList(); };
@@ -2085,44 +2089,38 @@ function renderIssuesList() {
   const count = $('#issue-count');
   if (count) count.textContent = `показано ${rows.length} из ${issuesCache.length}`;
   if (!rows.length) {
-    el.innerHTML = `<div class="text-neutral-500 text-sm">Issues нет. Создайте вручную или попросите агента: инструменты issue_create / issue_list / issue_update.</div>`;
+    el.innerHTML = `<div class="text-neutral-500 text-sm p-6">Issues нет. Создайте вручную или попросите агента: инструменты issue_create / issue_list / issue_update.</div>`;
     return;
   }
+  const dot = { open: 'bg-sky-400', in_progress: 'bg-purple-400', review: 'bg-amber-400', done: 'bg-emerald-400', cancelled: 'bg-neutral-500' };
   el.innerHTML = rows.map(i => {
     const st = ISSUE_STATUSES[i.status] || ISSUE_STATUSES.open;
     const pr = ISSUE_PRIORITIES[i.priority] || ISSUE_PRIORITIES.medium;
-    const author = i.created_by && i.created_by !== 'manual' ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400" title="заведено агентом ${esc(i.created_by)}">агент</span>` : '';
-    const assignee = i.assignee_name ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-sky-300" title="исполнитель">исп.: ${esc(i.assignee_name)}</span>` : '';
-    const comments = i.comments || [];
+    const nComments = (i.comments || []).length;
+    const author = i.created_by && i.created_by !== 'manual' ? ` · агент ${esc(i.created_by)}` : '';
     return `
-    <div class="rounded-xl border border-neutral-800 hover:border-neutral-700 p-4 mb-3">
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="px-2 py-0.5 rounded border text-xs ${st.cls}">${st.label}</span>
-            <span class="px-2 py-0.5 rounded border text-xs ${pr.cls}">${pr.label}</span>
-            <span class="font-semibold">${esc(i.title)}</span>
-            ${author}${assignee}
-          </div>
-          <div class="text-xs text-neutral-500 mt-1">#${i.id} · ${esc(i.created_at || '')}${i.updated_at && i.updated_at !== i.created_at ? ` · изменено ${esc(i.updated_at)}` : ''}</div>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <select class="issue-status bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs" data-id="${i.id}">
-            ${Object.entries(ISSUE_STATUSES).map(([v, s]) => `<option value="${v}" ${i.status === v ? 'selected' : ''}>${s.label}</option>`).join('')}
-          </select>
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs" data-id="${i.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950 text-xs" data-id="${i.id}">удалить</button>
-        </div>
+    <div class="issue-row group flex items-center gap-2.5 px-4 py-1.5 border-b border-neutral-800/60 hover:bg-neutral-900 cursor-pointer" data-id="${i.id}">
+      <span class="w-2 h-2 rounded-full shrink-0 ${dot[i.status] || dot.open}" title="${esc(st.label)}"></span>
+      <span class="mono text-[11px] text-neutral-500 shrink-0">#${i.id}</span>
+      <span class="flex-1 min-w-0 truncate text-sm" title="${esc(i.title)}">${esc(i.title)}</span>
+      <span class="hidden md:flex shrink-0 items-center ${pr.txt}" title="приоритет: ${esc(pr.label)}">${icon('flag', 'w-3.5 h-3.5')}</span>
+      ${nComments ? `<span class="shrink-0 flex items-center gap-1 text-[10px] text-neutral-500" title="комментарии">${icon('chat-bubble-left-right', 'w-3.5 h-3.5')}${nComments}</span>` : ''}
+      ${i.assignee_name ? `<span class="hidden lg:inline shrink-0 text-[10px] text-sky-300/80 truncate max-w-[8rem]" title="исполнитель">${esc(i.assignee_name)}</span>` : ''}
+      <span class="hidden xl:inline shrink-0 text-[10px] text-neutral-600 mono" title="создан/изменён${author}">${esc(i.updated_at || i.created_at || '')}</span>
+      <div class="shrink-0 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        <select class="issue-status bg-neutral-800 border border-neutral-700 rounded px-1.5 py-0.5 text-[11px]" data-id="${i.id}">
+          ${Object.entries(ISSUE_STATUSES).map(([v, s]) => `<option value="${v}" ${i.status === v ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+        <button class="edit p-1.5 rounded-md border border-neutral-700 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200" title="изменить" data-id="${i.id}">${icon('pencil-square', 'w-3.5 h-3.5')}</button>
+        <button class="del p-1.5 rounded-md border border-red-900 text-red-400 hover:bg-red-950" title="удалить" data-id="${i.id}">${icon('trash', 'w-3.5 h-3.5')}</button>
       </div>
-      ${i.description ? `<details class="mt-2"><summary class="text-xs text-neutral-400 cursor-pointer select-none">описание</summary><div class="md mt-2 text-sm leading-relaxed whitespace-pre-wrap">${esc(i.description)}</div></details>` : ''}
-      ${comments.length ? `<details class="mt-2"><summary class="text-xs text-neutral-400 cursor-pointer select-none">комментарии (${comments.length})</summary><div class="mt-2 space-y-2">${comments.map(c => `
-        <div class="rounded-lg bg-neutral-900 border border-neutral-800 p-2.5">
-          <div class="text-[10px] text-neutral-500 mb-1">${c.agent_name ? `агент ${esc(c.agent_name)}` : 'вручную'} · ${esc(c.created_at || '')}</div>
-          <div class="text-sm whitespace-pre-wrap">${esc(c.text)}</div>
-        </div>`).join('')}</div></details>` : ''}
-      ${(i.tags || []).length ? `<div class="flex flex-wrap gap-1.5 mt-2">${i.tags.map(t => `<button class="tag-chip px-2 py-0.5 rounded-full bg-neutral-800 text-xs text-neutral-300 hover:bg-neutral-700" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
     </div>`;
   }).join('');
+  $$('.issue-row', el).forEach(rowEl => rowEl.onclick = (e) => {
+    if (e.target.closest('select, button')) return;
+    const row = issuesCache.find(i => i.id === +rowEl.dataset.id);
+    if (row) issueDetailModal(row);
+  });
   $$('.issue-status', el).forEach(sel => sel.onchange = async () => {
     try {
       await api.put(`/api/issues/${sel.dataset.id}`, { status: sel.value });
@@ -2130,13 +2128,10 @@ function renderIssuesList() {
     } catch (e) { toast(e.message, 'error'); }
     await refreshIssues();
   });
-  $$('.tag-chip', el).forEach(chip => chip.onclick = () => {
-    issueFilters.tag = chip.dataset.tag;
-    const sel = $('#issue-tag-filter');
-    if (sel) sel.value = issueFilters.tag;
-    renderIssuesList();
+  $$('.edit', el).forEach(b => b.onclick = () => {
+    const row = issuesCache.find(i => i.id === +b.dataset.id);
+    if (row) issueDetailModal(row);
   });
-  $$('.edit', el).forEach(b => b.onclick = () => issueModal(issuesCache.find(i => i.id === +b.dataset.id)));
   $$('.del', el).forEach(b => b.onclick = async () => {
     if (!confirm('Удалить issue?')) return;
     await api.del(`/api/issues/${b.dataset.id}`);
@@ -2145,48 +2140,187 @@ function renderIssuesList() {
 }
 
 async function issueModal(row) {
-  const isEdit = !!row;
-  row = row || { title: '', description: '', status: 'open', priority: 'medium', tags: [], comments: [] };
+  return new Promise(async (resolve) => {
+    const isEdit = !!row;
+    row = row || { title: '', description: '', status: 'open', priority: 'medium', tags: [], comments: [] };
+    let agents = [];
+    try { agents = await api.get('/api/agents' + projQuery()); } catch {}
+    const assigneeOpts = [{ v: '', l: '— без исполнителя —' }, ...agents.map(a => ({ v: a.id, l: a.name }))];
+    const projectSelect = currentProject ? '' : formSelect('Проект', 'project_id', projectsCache.map(p => ({ v: p.id, l: p.name })), currentProject);
+    openModal(isEdit ? `Issue #${row.id}` : 'Новый issue', `
+      ${formInput('Название', 'title', row.title, 'Коротко о задаче')}
+      ${formArea('Описание', 'description', row.description, 6, 'Контекст, шаги, ожидания…')}
+      <div class="grid grid-cols-2 gap-3">
+        ${formSelect('Статус', 'status', Object.entries(ISSUE_STATUSES).map(([v, s]) => ({ v, l: s.label })), row.status)}
+        ${formSelect('Приоритет', 'priority', Object.entries(ISSUE_PRIORITIES).map(([v, p]) => ({ v, l: p.label })), row.priority || 'medium')}
+      </div>
+      ${formSelect('Исполнитель (агент)', 'assignee_id', assigneeOpts, row.assignee_id ?? '')}
+      ${formInput('Теги (через запятую)', 'tags', (row.tags || []).join(', '), 'баг, рефакторинг')}
+      ${projectSelect}`, async (close) => {
+        const f = readForm($('#modal-body'));
+        if (!f.title.trim()) throw new Error('Название обязательно');
+        const payload = {
+          title: f.title, description: f.description, status: f.status, priority: f.priority,
+          assignee_id: f.assignee_id === '' ? null : +f.assignee_id,
+          tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
+        };
+        if (isEdit) await api.put(`/api/issues/${row.id}`, payload);
+        else {
+          if (currentProject) payload.project_id = currentProject;
+          await api.post('/api/issues', payload);
+        }
+        close();
+        await refreshIssues();
+        resolve();
+      });
+  });
+}
+
+async function issueDetailModal(issue) {
+  const root = $('#modal-root');
   let agents = [];
   try { agents = await api.get('/api/agents' + projQuery()); } catch {}
   const assigneeOpts = [{ v: '', l: '— без исполнителя —' }, ...agents.map(a => ({ v: a.id, l: a.name }))];
-  const projectSelect = currentProject ? '' : formSelect('Проект', 'project_id', projectsCache.map(p => ({ v: p.id, l: p.name })), currentProject);
-  const comments = isEdit ? `
-    ${(row.comments || []).length ? `<div class="mb-3 space-y-2">${row.comments.map(c => `
-      <div class="rounded-lg bg-neutral-900 border border-neutral-800 p-2.5">
-        <div class="text-[10px] text-neutral-500 mb-1">${c.agent_name ? `агент ${esc(c.agent_name)}` : 'вручную'} · ${esc(c.created_at || '')}</div>
-        <div class="text-sm whitespace-pre-wrap">${esc(c.text)}</div>
-      </div>`).join('')}</div>` : ''}
-    ${formArea('Новый комментарий', 'comment', '', 3, 'Прогресс, вопросы, заметки…')}
-  ` : '';
-  openModal(isEdit ? `Issue #${row.id}` : 'Новый issue', `
-    ${formInput('Название', 'title', row.title, 'Коротко о задаче')}
-    ${formArea('Описание', 'description', row.description, 6, 'Контекст, шаги, ожидания…')}
-    <div class="grid grid-cols-2 gap-3">
-      ${formSelect('Статус', 'status', Object.entries(ISSUE_STATUSES).map(([v, s]) => ({ v, l: s.label })), row.status)}
-      ${formSelect('Приоритет', 'priority', Object.entries(ISSUE_PRIORITIES).map(([v, p]) => ({ v, l: p.label })), row.priority || 'medium')}
-    </div>
-    ${formSelect('Исполнитель (агент)', 'assignee_id', assigneeOpts, row.assignee_id ?? '')}
-    ${formInput('Теги (через запятую)', 'tags', (row.tags || []).join(', '), 'баг, рефакторинг')}
-    ${projectSelect}${comments}`, async (close) => {
-      const f = readForm($('#modal-body'));
-      if (!f.title.trim()) throw new Error('Название обязательно');
-      const payload = {
-        title: f.title, description: f.description, status: f.status, priority: f.priority,
-        assignee_id: f.assignee_id === '' ? null : +f.assignee_id,
-        tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
-      };
-      if (isEdit) await api.put(`/api/issues/${row.id}`, payload);
-      else {
-        if (currentProject) payload.project_id = currentProject;
-        await api.post('/api/issues', payload);
-      }
-      if (isEdit && f.comment && f.comment.trim()) {
-        await api.post(`/api/issues/${row.id}/comments`, { text: f.comment.trim() });
-      }
+  root.innerHTML = `
+    <div class="fixed inset-0 bg-black/60 z-40 flex items-center justify-center p-4" id="issue-overlay">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl">
+        <div class="flex items-center gap-3 px-4 py-2.5 border-b border-neutral-800">
+          <div class="text-sm font-semibold truncate flex-1 min-w-0" id="issue-d-title">#${issue.id} ${esc(issue.title)}</div>
+          <button id="issue-d-close" class="p-1.5 rounded-md text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200 shrink-0" title="закрыть">${icon('x-mark', 'w-4 h-4')}</button>
+        </div>
+        <div class="flex-1 flex flex-col md:flex-row min-h-0">
+          <div class="md:w-96 w-full shrink-0 border-b md:border-b-0 md:border-r border-neutral-800 overflow-y-auto p-4 space-y-3 max-h-56 md:max-h-none">
+            <div class="text-xs uppercase tracking-wider text-neutral-500">Редактирование</div>
+            <div id="issue-edit-form">
+              ${formInput('Название', 'title', issue.title, 'Коротко о задаче')}
+              ${formArea('Описание', 'description', issue.description || '', 4, 'Контекст, шаги, ожидания…')}
+              <div class="grid grid-cols-2 gap-3">
+                ${formSelect('Статус', 'status', Object.entries(ISSUE_STATUSES).map(([v, s]) => ({ v, l: s.label })), issue.status)}
+                ${formSelect('Приоритет', 'priority', Object.entries(ISSUE_PRIORITIES).map(([v, p]) => ({ v, l: p.label })), issue.priority || 'medium')}
+              </div>
+              ${formSelect('Исполнитель (агент)', 'assignee_id', assigneeOpts, issue.assignee_id ?? '')}
+              ${formInput('Теги (через запятую)', 'tags', (issue.tags || []).join(', '), 'баг, рефакторинг')}
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="issue-d-save" class="flex-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium">Сохранить</button>
+              <button id="issue-d-del" class="p-1.5 rounded-md border border-red-900 text-red-400 hover:bg-red-950 shrink-0" title="удалить">${icon('trash', 'w-3.5 h-3.5')}</button>
+            </div>
+            <div class="text-[10px] text-neutral-600" id="issue-d-dates"></div>
+          </div>
+          <div class="flex-1 flex flex-col min-h-0">
+            <div class="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-neutral-950/40" id="issue-chat"></div>
+            <div class="p-3 border-t border-neutral-800">
+              <div class="flex gap-2 items-end">
+                <textarea id="issue-comment-input" rows="2" placeholder="Комментарий… (Enter — отправить, Shift+Enter — перенос)"
+                  class="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-600 resize-none"></textarea>
+                <button id="issue-comment-send" class="px-3 rounded-lg bg-sky-600 hover:bg-sky-500 h-9 flex items-center" title="Отправить">${icon('paper-airplane', 'w-4 h-4')}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const close = () => {
+    root.innerHTML = '';
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  $('#issue-d-close').onclick = close;
+  const overlay = $('#issue-overlay');
+  overlay.addEventListener('mousedown', (e) => { overlay.dataset.downOnOverlay = e.target === overlay ? '1' : ''; });
+  overlay.onclick = (e) => { if (e.target === overlay && overlay.dataset.downOnOverlay === '1') close(); };
+
+  const load = async (fresh, syncForm) => {
+    let row = fresh;
+    if (!row) {
+      try { row = await api.get(`/api/issues/${issue.id}`); } catch { row = issuesCache.find(i => i.id === issue.id) || issue; }
+    }
+    if (!$('#issue-chat')) return;
+    const idx = issuesCache.findIndex(i => i.id === issue.id);
+    if (idx >= 0) issuesCache[idx] = row; else issuesCache.push(row);
+    $('#issue-d-title').textContent = `#${row.id} ${row.title}`;
+    $('#issue-d-dates').textContent = `создан ${row.created_at || ''}${row.updated_at && row.updated_at !== row.created_at ? ` · изменён ${row.updated_at}` : ''}`;
+    if (syncForm) {
+      const form = $('#issue-edit-form');
+      const set = (name, val) => { const f = $(`[name="${name}"]`, form); if (f) f.value = val ?? ''; };
+      set('title', row.title);
+      set('description', row.description);
+      set('status', row.status);
+      set('priority', row.priority || 'medium');
+      set('assignee_id', row.assignee_id ?? '');
+      set('tags', (row.tags || []).join(', '));
+    }
+    const chat = $('#issue-chat');
+    const comments = row.comments || [];
+    const fromAgent = row.created_by && row.created_by !== 'manual';
+    const bubble = (author, when, text, side, label = '', cid = null) => {
+      const mine = side === 'user';
+      return `
+      <div class="flex ${mine ? 'justify-end' : 'justify-start'}">
+        <div class="md max-w-[85%] ${mine ? 'bg-sky-900/60 border-sky-800 rounded-br-sm' : 'bg-neutral-800 border-neutral-700 rounded-bl-sm'} border rounded-2xl px-4 py-2.5 text-sm">
+          <div class="text-[10px] ${mine ? 'text-sky-400' : 'text-neutral-500'} mb-1 flex items-center gap-2">
+            <span class="flex-1 min-w-0">${author} · ${esc(when || '')}${label ? ` · ${label}` : ''}</span>
+            ${cid !== null ? `<button class="issue-comment-del p-0.5 rounded text-neutral-600 hover:text-red-400 shrink-0" title="удалить комментарий" data-id="${cid}">${icon('trash', 'w-3 h-3')}</button>` : ''}
+          </div>
+          <div>${renderMarkdown(text)}</div>
+        </div>
+      </div>`;
+    };
+    chat.innerHTML = `
+      ${row.description ? bubble(fromAgent ? `агент ${esc(row.created_by)}` : 'вы', row.created_at, row.description, fromAgent ? 'agent' : 'user', 'описание') : ''}
+      ${comments.map(c => bubble(c.agent_name ? `агент ${esc(c.agent_name)}` : 'вы', c.created_at, c.text, c.agent_name ? 'agent' : 'user', '', c.id)).join('')}
+      ${!row.description && !comments.length ? `<div class="text-center text-xs text-neutral-600 py-6">Комментариев пока нет — начните обсуждение. Агенты тоже пишут сюда через issue_comment.</div>` : ''}`;
+    chat.scrollTop = chat.scrollHeight;
+    $$('.issue-comment-del', chat).forEach(b => b.onclick = async () => {
+      if (!confirm('Удалить комментарий?')) return;
+      try {
+        await api.del(`/api/issues/${issue.id}/comments/${b.dataset.id}`);
+        await load();
+        await refreshIssues();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  };
+
+  const send = async () => {
+    const inp = $('#issue-comment-input');
+    const text = inp.value.trim();
+    if (!text) return;
+    inp.value = '';
+    try {
+      const c = await api.post(`/api/issues/${issue.id}/comments`, { text });
+      const cur = issuesCache.find(i => i.id === issue.id);
+      if (cur) cur.comments = [...(cur.comments || []), c];
+      await load(cur);
+      await refreshIssues();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  $('#issue-comment-send').onclick = send;
+  $('#issue-comment-input').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+  $('#issue-d-save').onclick = async () => {
+    const f = readForm($('#issue-edit-form'));
+    if (!f.title.trim()) { toast('Название обязательно', 'error'); return; }
+    const payload = {
+      title: f.title, description: f.description, status: f.status, priority: f.priority,
+      assignee_id: f.assignee_id === '' ? null : +f.assignee_id,
+      tags: f.tags.split(',').map(t => t.trim()).filter(Boolean),
+    };
+    try {
+      await api.put(`/api/issues/${issue.id}`, payload);
+      toast('Сохранено', 'ok');
+      await load(null, true);
+      await refreshIssues();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  $('#issue-d-del').onclick = async () => {
+    if (!confirm('Удалить issue?')) return;
+    try {
+      await api.del(`/api/issues/${issue.id}`);
       close();
       await refreshIssues();
-    });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  load(null, true);
 }
 
 /* ---------- providers ---------- */

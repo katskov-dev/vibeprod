@@ -460,6 +460,8 @@ async def expire_session(sid):
     if not row:
         return
     was_failed = row["status"] == "failed"
+    if was_failed and "воркер удалён по TTL" in (row["error"] or ""):
+        return  # уже обработана — не дублируем запись в error
     await streams.stop(sid)
     if row["container_id"]:
         await asyncio.to_thread(kill_worker, row["container_id"])

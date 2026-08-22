@@ -412,6 +412,21 @@ def test_unknown_session_is_404(client):
     assert client.get("/api/sessions/does-not-exist").status_code == 404
 
 
+def test_expire_session_does_not_duplicate_error(client, monkeypatch):
+    import asyncio
+
+    from app import db, session_manager
+
+    _seed_finished_session(sid="ttl-1", status="failed")
+    db.execute("UPDATE sessions SET error='критическая ошибка' WHERE id='ttl-1'")
+    monkeypatch.setattr(session_manager, "kill_worker", lambda cid: None)
+    monkeypatch.setattr(session_manager.events, "emit", lambda *a, **kw: None)
+    asyncio.run(session_manager.expire_session("ttl-1"))
+    asyncio.run(session_manager.expire_session("ttl-1"))
+    row = db.query_one("SELECT error FROM sessions WHERE id='ttl-1'")
+    assert row["error"] == "критическая ошибка | воркер удалён по TTL"
+
+
 def _seed_finished_session(sid="cont-1", status="completed"):
     from app import db
 
@@ -899,6 +914,11 @@ def test_issues_crud_and_filters(client):
     # неизменённые поля остаются
     assert r.json()["title"] == "Упал деплой"
 
+    # отдельный GET
+    one = client.get(f"/api/issues/{i1['id']}").json()
+    assert one["title"] == "Упал деплой" and one["comments"] == []
+    assert client.get("/api/issues/999999").status_code == 404
+
     # валидация
     assert client.post("/api/issues", json={"title": ""}).status_code == 400
     assert client.post("/api/issues", json={"title": "x", "status": "wat"}).status_code == 400
@@ -932,6 +952,22 @@ def test_broker_issue_tools(client, monkeypatch):
 
     r = asyncio.run(broker_mcp.call_tool("issue_update", {"id": created["id"], "status": "in_progress"}, ctx))
     assert json.loads(r["content"][0]["text"])["status"] == "in_progress"
+
+    r = asyncio.run(broker_mcp.call_tool("issue_get", {"id": created["id"]}, ctx))
+    got = json.loads(r["content"][0]["text"])
+    assert got["title"] == "От агента" and got["comments"] == []
+    r = asyncio.run(broker_mcp.call_tool("issue_get", {"id": 999999}, ctx))
+    assert r["isError"] and "не найден" in r["content"][0]["text"]
+
+    r = asyncio.run(broker_mcp.call_tool("issue_comment", {"id": created["id"], "text": "мой коммент"}, ctx))
+    c = json.loads(r["content"][0]["text"])
+    assert c["text"] == "мой коммент"
+
+    r = asyncio.run(broker_mcp.call_tool("issue_comment_delete", {"issue_id": created["id"], "comment_id": c["id"]}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    r = asyncio.run(broker_mcp.call_tool("issue_comment_delete", {"issue_id": created["id"], "comment_id": c["id"]}, ctx))
+    assert r["isError"] and "не найден" in r["content"][0]["text"]
+    assert json.loads(asyncio.run(broker_mcp.call_tool("issue_get", {"id": created["id"]}, ctx))["content"][0]["text"])["comments"] == []
 
     r = asyncio.run(broker_mcp.call_tool("issue_delete", {"id": created["id"]}, ctx))
     assert not r["isError"]
@@ -975,6 +1011,11 @@ def test_issue_priority_assignee_comments(client):
     # комментарий можно добавить прямо в update
     client.put(f"/api/issues/{i['id']}", json={"comment": "ещё коммент"})
     assert len(client.get(f"/api/issues/{i['id']}/comments").json()) == 2
+
+    # удаление комментария
+    assert client.delete(f"/api/issues/{i['id']}/comments/999999").status_code == 404
+    assert client.delete(f"/api/issues/{i['id']}/comments/{c['id']}").json() == {"ok": True}
+    assert len(client.get(f"/api/issues/{i['id']}/comments").json()) == 1
 
     # валидация
     assert client.post("/api/issues", json={"title": "x", "priority": "wat"}).status_code == 400
@@ -1030,7 +1071,18 @@ def test_broker_issue_own_only(client):
 
     # комментарий к своей — с именем агента
     r = asyncio.run(broker_mcp.call_tool("issue_comment", {"id": created["id"], "text": "делаю"}, ctx))
-    assert json.loads(r["content"][0]["text"])["agent_name"] == "solo"
+    c = json.loads(r["content"][0]["text"])
+    assert c["agent_name"] == "solo"
+
+    # удалять можно только свои комментарии
+    other_cid = db.execute(
+        "INSERT INTO issue_comments(issue_id, agent_id, agent_name, text) VALUES(?,?,?,?)",
+        (created["id"], other_aid, "другой", "чужой коммент"),
+    )
+    r = asyncio.run(broker_mcp.call_tool("issue_comment_delete", {"issue_id": created["id"], "comment_id": other_cid}, ctx))
+    assert r["isError"] and "только свои" in r["content"][0]["text"]
+    r = asyncio.run(broker_mcp.call_tool("issue_comment_delete", {"issue_id": created["id"], "comment_id": c["id"]}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
 
     # исполнителем своей можно назначить только себя
     r = asyncio.run(broker_mcp.call_tool("issue_update", {"id": created["id"], "assignee": other_aid}, ctx))
@@ -1584,6 +1636,59 @@ def test_broker_file_download(client, monkeypatch, tmp_path):
 
     # без сессии нельзя
     r = asyncio.run(broker_mcp.call_tool("file_download", {"path": "x"}, {"project_id": 1}))
+    assert r["isError"] and "сессии воркера" in r["content"][0]["text"]
+
+
+def test_broker_file_upload(client, monkeypatch, tmp_path):
+    import asyncio
+    import json
+
+    from app import broker_mcp, files_store, session_manager
+
+    ups = {}
+    monkeypatch.setattr(files_store, "upload", lambda pid, path, data, ct, size=None: ups.update(pid=pid, path=path, data=data, ct=ct, size=size))
+    monkeypatch.setattr(files_store, "content_url", lambda pid, path: f"/api/files/content?project_id={pid}&path={path}")
+
+    ws = tmp_path / "workspaces" / "sess1"
+    ws.mkdir(parents=True)
+    (ws / "shots").mkdir()
+    (ws / "shots" / "скрин.png").write_bytes(b"PNGDATA")
+    monkeypatch.setattr(session_manager, "ws_dir", lambda sid: ws)
+
+    ctx = {"session_id": "sess1", "project_id": 1}
+
+    # файл из workspace в корень файлов проекта
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"path": "shots/скрин.png"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    out = json.loads(r["content"][0]["text"])
+    assert out["path"] == "скрин.png" and out["size"] == 7
+    assert ups["data"] == b"PNGDATA" and ups["path"] == "скрин.png"
+
+    # dest в подпапку
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"path": "shots/скрин.png", "dest": "отчёты/2026/скрин.png"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    assert ups["path"] == "отчёты/2026/скрин.png"
+
+    # dest с "/" — имя файла из path
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"path": "shots/скрин.png", "dest": "отчёты/"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    assert ups["path"] == "отчёты/скрин.png"
+
+    # текст через content + filename
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"content": "итог работы", "filename": "итог.md"}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    assert ups["data"] == "итог работы".encode("utf-8") and ups["path"] == "итог.md"
+
+    # несуществующий файл
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"path": "нет.txt"}, ctx))
+    assert r["isError"] and "не найден" in r["content"][0]["text"]
+
+    # .. в dest запрещён
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"path": "shots/скрин.png", "dest": "../секрет.txt"}, ctx))
+    assert r["isError"] and "недопустимый путь" in r["content"][0]["text"]
+
+    # без сессии нельзя
+    r = asyncio.run(broker_mcp.call_tool("file_upload", {"content": "x"}, {"project_id": 1}))
     assert r["isError"] and "сессии воркера" in r["content"][0]["text"]
 
 
