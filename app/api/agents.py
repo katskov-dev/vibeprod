@@ -92,8 +92,8 @@ def create_agent(payload: dict):
         raise HTTPException(409, "агент с таким именем уже есть")
     aid = db.execute(
         "INSERT INTO agents(name, description, mode, model, temperature, variant, system_prompt, permission, "
-        "memory, memory_enabled, issues_own_only, is_default, project_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "memory, memory_enabled, issues_own_only, exa_enabled, is_default, project_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             name,
             payload.get("description") or "",
@@ -106,6 +106,7 @@ def create_agent(payload: dict):
             payload.get("memory") or "",
             1 if payload.get("memory_enabled", 1) else 0,
             1 if payload.get("issues_own_only") else 0,
+            1 if payload.get("exa_enabled") else 0,
             1 if payload.get("is_default") else 0,
             _check_project(payload.get("project_id")),
         ),
@@ -141,7 +142,7 @@ def update_agent(agent_id: int, payload: dict):
         raise HTTPException(409, "агент с таким именем уже есть")
     db.execute(
         "UPDATE agents SET name=?, description=?, mode=?, model=?, temperature=?, variant=?, system_prompt=?, "
-        "permission=?, memory=?, memory_enabled=?, issues_own_only=?, is_default=?, project_id=?, "
+        "permission=?, memory=?, memory_enabled=?, issues_own_only=?, exa_enabled=?, is_default=?, project_id=?, "
         "updated_at=datetime('now') WHERE id=?",
         (
             name,
@@ -155,6 +156,7 @@ def update_agent(agent_id: int, payload: dict):
             payload.get("memory", row["memory"]),
             1 if payload.get("memory_enabled", row["memory_enabled"]) else 0,
             1 if payload.get("issues_own_only", row["issues_own_only"]) else 0,
+            1 if payload.get("exa_enabled", row["exa_enabled"]) else 0,
             1 if payload.get("is_default") else 0,
             _check_project(payload.get("project_id", row["project_id"])),
             agent_id,

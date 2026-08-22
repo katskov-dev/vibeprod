@@ -18,6 +18,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import urllib.request
 from pathlib import PurePosixPath
 
 from . import channel
@@ -595,6 +596,71 @@ def h_file_upload(args, ctx):
     }
 
 
+# ---------- exa web-поиск ----------
+
+EXA_API = "https://api.exa.ai/search"
+EXA_TOOLS = {"exa_search"}
+
+
+def _exa_enabled(ctx):
+    """exa_search доступен только агентам с включённой настройкой exa_enabled."""
+    sid = ctx.get("session_id")
+    if not sid:
+        raise ToolError("exa-поиск доступен только из сессии воркера")
+    row = db.query_one(
+        "SELECT a.exa_enabled FROM sessions s JOIN agents a ON a.id=s.agent_id WHERE s.id=?",
+        (sid,),
+    )
+    if not row:
+        raise ToolError("сессия не привязана к агенту")
+    if not row["exa_enabled"]:
+        raise ToolError("exa-поиск у агента выключен — включите его в настройках агента")
+    return row
+
+
+def _exa_request(payload):
+    key = os.environ.get("EXA_API_KEY", "").strip()
+    if not key:
+        raise ToolError("EXA_API_KEY не задан на брокере (env брокера)")
+    req = urllib.request.Request(
+        EXA_API,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-api-key": key},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+async def h_exa_search(args, ctx):
+    _exa_enabled(ctx)
+    query = (args.get("query") or "").strip()
+    if not query:
+        raise ToolError("query обязателен")
+    try:
+        num = int(args.get("num_results") or 5)
+    except (TypeError, ValueError):
+        num = 5
+    num = max(1, min(num, 10))
+    payload = {
+        "query": query,
+        "numResults": num,
+        "type": "auto",
+        "contents": {"text": {"maxCharacters": 2000}},
+    }
+    data = await asyncio.to_thread(_exa_request, payload)
+    results = []
+    for r in data.get("results") or []:
+        results.append({
+            "title": r.get("title") or "",
+            "url": r.get("url") or "",
+            "published": r.get("publishedDate") or "",
+            "author": r.get("author") or "",
+            "text": (r.get("text") or "")[:2000],
+        })
+    return {"query": query, "results": results}
+
+
 # ---------- вызовы других агентов ----------
 
 TEAM_TOOLS = {"agent_call_list", "agent_run", "agent_status"}
@@ -742,6 +808,7 @@ HANDLERS = {
     "issue_delete": h_issue_delete,
     "file_download": h_file_download,
     "file_upload": h_file_upload,
+    "exa_search": h_exa_search,
     "agent_call_list": h_agent_call_list,
     "agent_run": h_agent_run,
     "agent_status": h_agent_status,
@@ -901,6 +968,17 @@ BROKER_TOOLS = [
         [],
     ),
     _tool(
+        "exa_search",
+        "Живой поиск в интернете через Exa: свежие статьи, документация, новости. "
+        "Используй, когда нужна актуальная информация из веба. Возвращает заголовки, "
+        "ссылки, авторов и текст результатов.",
+        {
+            "query": _prop("string", "поисковый запрос (на естественном языке, можно по-русски или по-английски)"),
+            "num_results": _prop("integer", "сколько результатов вернуть (по умолчанию 5, максимум 10)"),
+        },
+        ["query"],
+    ),
+    _tool(
         "agent_call_list",
         "Список агентов, которых ты можешь вызвать (настроено в «Может вызывать» в настройках твоего агента). "
         "Вызывай в начале, чтобы узнать доступных агентов, их роли и описания.",
@@ -956,7 +1034,7 @@ def tools_for(ctx):
     sid = (ctx or {}).get("session_id")
     if sid:
         row = db.query_one(
-            "SELECT a.memory_enabled, "
+            "SELECT a.memory_enabled, a.exa_enabled, "
             "(SELECT COUNT(*) FROM agent_calls c WHERE c.caller_id=a.id) AS calls "
             "FROM sessions s JOIN agents a ON a.id=s.agent_id WHERE s.id=?",
             (sid,),
@@ -966,4 +1044,6 @@ def tools_for(ctx):
                 tools = [t for t in tools if not t["name"].startswith("memory_")]
             if not row["calls"]:
                 tools = [t for t in tools if t["name"] not in TEAM_TOOLS]
+            if not row["exa_enabled"]:
+                tools = [t for t in tools if t["name"] not in EXA_TOOLS]
     return tools

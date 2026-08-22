@@ -1569,6 +1569,54 @@ def test_broker_telegram_tools(client, monkeypatch, tmp_path):
     assert r["isError"] and "чат" in r["content"][0]["text"]
 
 
+def test_broker_exa_search(client, monkeypatch):
+    import asyncio
+    import json
+
+    from app import broker_mcp, db
+
+    aid = db.execute(
+        "INSERT INTO agents(name, mode, model, exa_enabled) VALUES('poiskovik', 'primary', 'm/m', 0)"
+    )
+    db.execute(
+        "INSERT INTO sessions(id, agent_id, agent_name, project_id, status) "
+        "VALUES('sess-exa', ?, 'poiskovik', 1, 'running')",
+        (aid,),
+    )
+    ctx = {"session_id": "sess-exa", "project_id": 1}
+
+    # выключен — инструмента нет в tools_for и вызов отклоняется
+    names = [t["name"] for t in broker_mcp.tools_for(ctx)]
+    assert "exa_search" not in names
+    r = asyncio.run(broker_mcp.call_tool("exa_search", {"query": "тест"}, ctx))
+    assert r["isError"] and "выключен" in r["content"][0]["text"]
+
+    # включаем через API — инструмент появляется
+    r = client.put(f"/api/agents/{aid}", json={"exa_enabled": True})
+    assert r.status_code == 200, r.text
+    assert db.query_one("SELECT exa_enabled FROM agents WHERE id=?", (aid,))["exa_enabled"] == 1
+    assert "exa_search" in [t["name"] for t in broker_mcp.tools_for(ctx)]
+
+    # без ключа — ошибка
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    r = asyncio.run(broker_mcp.call_tool("exa_search", {"query": "тест"}, ctx))
+    assert r["isError"] and "EXA_API_KEY" in r["content"][0]["text"]
+
+    # с ключом и фейковым ответом
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    monkeypatch.setattr(broker_mcp, "_exa_request", lambda payload: {"results": [
+        {"title": "Статья", "url": "https://example.com", "text": "текст"}
+    ]})
+    r = asyncio.run(broker_mcp.call_tool("exa_search", {"query": "тест", "num_results": 3}, ctx))
+    assert not r["isError"], r["content"][0]["text"]
+    out = json.loads(r["content"][0]["text"])
+    assert out["results"][0]["url"] == "https://example.com" and out["results"][0]["text"] == "текст"
+
+    # без сессии нельзя
+    r = asyncio.run(broker_mcp.call_tool("exa_search", {"query": "тест"}, {"project_id": 1}))
+    assert r["isError"] and "сессии воркера" in r["content"][0]["text"]
+
+
 def test_broker_file_download(client, monkeypatch, tmp_path):
     import asyncio
 

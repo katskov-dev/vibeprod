@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS agents (
   memory TEXT DEFAULT '',
   memory_enabled INTEGER DEFAULT 1,
   issues_own_only INTEGER DEFAULT 0,
+  exa_enabled INTEGER DEFAULT 0,
   is_default INTEGER DEFAULT 0,
   project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT (datetime('now')),

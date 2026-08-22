@@ -45,6 +45,8 @@ def init_db():
             conn.execute("ALTER TABLE agents ADD COLUMN memory_enabled INTEGER DEFAULT 1")
         if "issues_own_only" not in acols:
             conn.execute("ALTER TABLE agents ADD COLUMN issues_own_only INTEGER DEFAULT 0")
+        if "exa_enabled" not in acols:
+            conn.execute("ALTER TABLE agents ADD COLUMN exa_enabled INTEGER DEFAULT 0")
         icols = {r["name"] for r in conn.execute("PRAGMA table_info(issues)").fetchall()}
         if "priority" not in icols:
             conn.execute("ALTER TABLE issues ADD COLUMN priority TEXT DEFAULT 'medium'")

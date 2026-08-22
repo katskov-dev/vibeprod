@@ -1569,7 +1569,7 @@ async function agentModal(agentId) {
   const a = isEdit ? await api.get(`/api/agents/${agentId}`) : {
     name: '', description: '', mode: 'primary', model: 'deepseek/deepseek-chat',
     temperature: '', system_prompt: '', permission: '"allow"', is_default: false,
-    memory: '', memory_enabled: true, issues_own_only: false, mcp: [], skills: [], calls: [],
+    memory: '', memory_enabled: true, issues_own_only: false, exa_enabled: false, mcp: [], skills: [], calls: [],
   };
   const skills = await api.get('/api/skills');
   let allAgents = [];
@@ -1642,6 +1642,10 @@ async function agentModal(agentId) {
         <span class="text-neutral-400 text-xs">Включить память агента (инструменты memory_get/memory_set и контекст между сессиями)</span>
       </label>
       ${formArea('Память (долговременный текст агента — что он помнит между задачами)', 'memory', a.memory || '', 10)}
+      <label class="flex items-start gap-2 text-sm mb-3">
+        <input type="checkbox" name="exa_enabled" ${a.exa_enabled ? 'checked' : ''} class="accent-sky-600 mt-0.5">
+        <span class="text-neutral-400 text-xs">Exa web-поиск — инструмент exa_search (живой поиск в интернете: статьи, документация, новости). Ключ задаётся на брокере через env EXA_API_KEY.</span>
+      </label>
     </div>
     <div id="tab-issues-pane" class="hidden">
       <div class="text-xs text-neutral-500 mb-3">Настройки доступа агента к трекеру issues проекта.</div>
@@ -1684,6 +1688,7 @@ async function agentModal(agentId) {
     f.is_default = $('[name="is_default"]', $('#tab-general-pane')).checked;
     f.issues_own_only = $('[name="issues_own_only"]', $('#tab-issues-pane')).checked;
     f.memory_enabled = $('[name="memory_enabled"]', $('#tab-memory-pane')).checked;
+    f.exa_enabled = $('[name="exa_enabled"]', $('#tab-memory-pane')).checked;
     f.project_id = currentProject || f.project_id || null;
     const mcp = $$('#mcp-list [data-mcp]').map(el => {
       const d = el.dataset;
