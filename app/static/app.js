@@ -1697,6 +1697,10 @@ async function agentModal(agentId) {
         headers: $('[name="mcp-headers"]', el).value, environment: $('[name="mcp-env"]', el).value,
         enabled: $('[name="mcp-enabled"]', el).checked };
     });
+    const keptIds = new Set(mcp.map(m => m.id).filter(Boolean));
+    for (const old of (a.mcp || [])) {
+      if (old.id && !keptIds.has(old.id)) await api.del(`/api/agents/${agentId}/mcp/${old.id}`);
+    }
     const skillIds = $$('#skills-checkbox [data-skill]:checked').map(el => +el.dataset.skill);
     if (isEdit) await api.put(`/api/agents/${agentId}`, f);
     else { const created = await api.post('/api/agents', f); agentId = created.id; }
@@ -1907,7 +1911,7 @@ function mcpRow(m) {
         <option value="remote" ${m.type === 'remote' ? 'selected' : ''}>remote</option>
       </select>
       <label class="flex items-center gap-1 text-xs text-neutral-400"><input type="checkbox" name="mcp-enabled" ${m.enabled ? 'checked' : ''} class="accent-sky-600">вкл</label>
-      <button data-del-mcp class="text-neutral-600 hover:text-red-400 text-xs px-1">✕</button>
+      <button data-del-mcp class="p-0.5 text-neutral-600 hover:text-red-400" title="Убрать MCP">${icon('x-mark', 'w-3.5 h-3.5')}</button>
     </div>
     <div data-if="local" class="${m.type === 'remote' ? 'hidden' : ''}">
       <input name="mcp-command" value="${esc(m.command)}" placeholder='["npx", "-y", "@playwright/mcp"]' class="w-full bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs mono mb-2">

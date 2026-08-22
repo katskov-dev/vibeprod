@@ -1966,6 +1966,17 @@ def test_broker_agent_run_tools(client, monkeypatch):
     assert not (broker_mcp.TEAM_TOOLS & {t["name"] for t in broker_mcp.tools_for(ctx)})
 
 
+def test_agent_mcp_delete(client):
+    aid = client.get("/api/agents").json()[0]["id"]
+    r = client.post(f"/api/agents/{aid}/mcp", json={"name": "probe-mcp", "type": "remote", "url": "http://x"})
+    assert r.status_code == 200, r.text
+    mid = r.json()["id"]
+    assert any(m["id"] == mid for m in client.get(f"/api/agents/{aid}").json()["mcp"])
+
+    assert client.delete(f"/api/agents/{aid}/mcp/{mid}").json() == {"ok": True}
+    assert not any(m["id"] == mid for m in client.get(f"/api/agents/{aid}").json()["mcp"])
+
+
 def test_render_workspace_injects_broker_mcp(tmp_path):
     from app.render import render_workspace
 
