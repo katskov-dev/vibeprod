@@ -77,12 +77,12 @@ function openModal(title, bodyHtml, onSubmit, width = 'max-w-4xl') {
       <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full ${width} max-h-[90vh] flex flex-col shadow-2xl">
         <div class="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
           <div class="font-semibold">${esc(title)}</div>
-          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">&times;</button>
+          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">${icon('x-mark', 'w-5 h-5')}</button>
         </div>
         <div class="p-5 overflow-y-auto" id="modal-body">${bodyHtml}</div>
         <div class="px-5 py-3 border-t border-neutral-800 flex justify-end gap-2">
           <button id="modal-cancel" class="px-4 py-2 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm">Отмена</button>
-          <button id="modal-ok" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Сохранить</button>
+          <button id="modal-ok" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('check', 'w-4 h-4')}Сохранить</button>
         </div>
       </div>
     </div>`;
@@ -110,9 +110,9 @@ function openImageLightbox(src, name = '') {
       <div class="flex items-center justify-between gap-3 px-4 py-2.5 bg-neutral-900/95 border-b border-neutral-800 shrink-0" id="imgbox-bar">
         <div class="text-sm text-neutral-300 truncate">${esc(name || new URL(src, window.location.origin).hostname)}</div>
         <div class="flex items-center gap-2 shrink-0">
-          <a href="${esc(dl)}" download class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium no-underline">Скачать</a>
-          <a href="${esc(src)}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm no-underline">Открыть в новой вкладке</a>
-          <button class="text-neutral-400 hover:text-white text-2xl leading-none px-2">&times;</button>
+          <a href="${esc(dl)}" download class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium no-underline">${icon('arrow-down-tray', 'w-4 h-4')}Скачать</a>
+          <a href="${esc(src)}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm no-underline">${icon('arrow-top-right-on-square', 'w-4 h-4')}Открыть в новой вкладке</a>
+          <button class="p-1.5 rounded-md text-neutral-400 hover:bg-neutral-800 hover:text-white" title="закрыть">${icon('x-mark', 'w-5 h-5')}</button>
         </div>
       </div>
       <div class="flex-1 flex items-center justify-center p-4 min-h-0 cursor-zoom-out" id="imgbox-stage">
@@ -545,7 +545,7 @@ async function renderHome() {
                   class="appearance-none bg-neutral-800/80 border border-neutral-700 hover:border-neutral-600 rounded-xl pl-6 pr-8 py-2 text-sm text-neutral-200 cursor-pointer focus:outline-none focus:border-sky-500 disabled:opacity-40">
                   ${options.map(o => `<option value="${o.v}" ${options[0] && o.v === options[0].v ? 'selected' : ''}>${optLabel(o)}</option>`).join('') || '<option>нет агентов</option>'}
                 </select>
-                <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 text-[10px]">▾</span>
+                <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500">${icon('chevron-down', 'w-3.5 h-3.5')}</span>
               </div>
               <button id="home-go" class="px-5 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-sm font-semibold shadow-lg shadow-sky-600/25 transition-all ${options.length ? '' : 'opacity-40 pointer-events-none'}">Начать</button>
             </div>
@@ -617,7 +617,7 @@ async function renderSessions(openId) {
     <div class="h-full flex flex-col">
       <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
         <div class="text-base font-semibold">Сессии</div>
-        <button id="new-session" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новая сессия</button>
+        <button id="new-session" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Новая сессия</button>
       </div>
       <div class="flex-1 overflow-y-auto" id="sessions-list"><div class="text-neutral-500 text-sm p-4">загрузка…</div></div>
     </div>`;
@@ -680,9 +680,9 @@ async function refreshSessionsList(openId) {
     <div class="flex items-center justify-between mt-2 pt-2 px-4 pb-2 border-t border-neutral-800 text-xs text-neutral-500">
       <div>всего: ${total}</div>
       <div class="flex items-center gap-2">
-        <button class="pg-prev px-2 py-1 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" ${sessionsPage <= 1 ? 'disabled' : ''}>‹ назад</button>
+        <button class="pg-prev px-2 py-1.5 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" title="назад" ${sessionsPage <= 1 ? 'disabled' : ''}>${icon('chevron-left', 'w-4 h-4')}</button>
         <span>стр. ${sessionsPage} из ${pages}</span>
-        <button class="pg-next px-2 py-1 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" ${sessionsPage >= pages ? 'disabled' : ''}>вперёд ›</button>
+        <button class="pg-next px-2 py-1.5 rounded border border-neutral-800 hover:border-neutral-600 disabled:opacity-40" title="вперёд" ${sessionsPage >= pages ? 'disabled' : ''}>${icon('chevron-right', 'w-4 h-4')}</button>
       </div>
     </div>`;
   $$('[data-open]', el).forEach(row => row.onclick = () => showView('sessions', row.dataset.open));
@@ -1235,7 +1235,7 @@ function renderChat(sessionId) {
     <div class="h-full flex flex-col">
       <div class="flex items-center justify-between px-6 py-3 border-b border-neutral-800">
         <div class="flex items-center gap-3">
-          <button id="chat-back" class="text-neutral-500 hover:text-neutral-200 text-lg leading-none">&larr;</button>
+          <button id="chat-back" class="p-1.5 rounded-md text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200" title="назад">${icon('arrow-left', 'w-5 h-5')}</button>
           <div>
             <div class="font-semibold" id="chat-title">…</div>
             <div class="text-xs text-neutral-500" id="chat-agent"></div>
@@ -1243,8 +1243,8 @@ function renderChat(sessionId) {
         </div>
         <div class="flex items-center gap-3">
           <span id="chat-status"></span>
-          <button id="chat-abort" class="px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">Прервать</button>
-          <button id="chat-restart" class="px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">Перезапустить</button>
+          <button id="chat-abort" class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">${icon('stop', 'w-3.5 h-3.5')}Прервать</button>
+          <button id="chat-restart" class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">${icon('arrow-path', 'w-3.5 h-3.5')}Перезапустить</button>
         </div>
       </div>
       <div class="flex-1 flex overflow-hidden">
@@ -1339,7 +1339,7 @@ function setupChatInput() {
     <div class="flex gap-2">
       <textarea id="chat-input" rows="2" placeholder="Сообщение агенту… (Enter — отправить)"
         class="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-600 resize-none"></textarea>
-      <button id="chat-send" class="px-5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium self-end h-9">Отправить</button>
+      <button id="chat-send" class="inline-flex items-center gap-1.5 px-5 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium self-end h-9">${icon('paper-airplane', 'w-4 h-4')}Отправить</button>
     </div>`;
   const sendPrompt = async () => {
     const input = $('#chat-input');
@@ -1503,7 +1503,7 @@ async function renderAgents() {
         <div class="text-lg font-semibold">Агенты</div>
         <div class="flex gap-2">
           <button id="new-skill" class="px-4 py-2 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-sm">Скиллы</button>
-          <button id="new-agent" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый агент</button>
+          <button id="new-agent" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Новый агент</button>
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="agents-list"></div>
@@ -1608,7 +1608,7 @@ async function agentModal(agentId) {
         <div class="relative mt-1" id="model-select-wrap">
           <button id="model-trigger" type="button" class="w-full flex items-center justify-between bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm hover:border-neutral-600 focus:outline-none">
             <span class="model-label mono text-sky-300 truncate">—</span>
-            <span class="text-neutral-500 text-xs">▾</span>
+            <span class="text-neutral-500">${icon('chevron-down', 'w-4 h-4')}</span>
           </button>
           <div id="model-menu" class="hidden absolute left-0 right-0 top-full mt-1 bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-30 overflow-hidden">
             <input id="model-filter" placeholder="Фильтр…" class="w-full bg-neutral-800 border-b border-neutral-700 px-3 py-1.5 text-xs focus:outline-none">
@@ -1861,7 +1861,7 @@ async function agentModal(agentId) {
           <div class="text-xs mono text-sky-300 truncate">${esc(c.name)}${c.builtin ? ' <span class="text-neutral-500">· встроенный</span>' : ''}</div>
           <div class="text-xs text-neutral-500 truncate">${esc(c.description || '')}</div>
         </div>
-        <button data-cat-attach="${c.id}" class="px-2 py-1 rounded border border-sky-800 text-sky-300 hover:bg-sky-950 text-xs shrink-0">＋</button>
+        <button data-cat-attach="${c.id}" class="p-1.5 rounded-md border border-sky-800 text-sky-300 hover:bg-sky-950 shrink-0" title="Добавить к агенту">${icon('plus', 'w-3.5 h-3.5')}</button>
       </div>`).join('');
     $$('[data-cat-attach]', listEl).forEach(b => b.onclick = async () => {
       const c = catalog.find(x => x.id === +b.dataset.catAttach);
@@ -1925,7 +1925,7 @@ async function renderSkills() {
           <div class="text-lg font-semibold">Скиллы</div>
           <div class="text-xs text-neutral-500">Библиотека скиллов. Прикрепить к агенту — в его карточке, вкладка «Скиллы». Каждый скилл становится SKILL.md в .opencode/skills воркера.</div>
         </div>
-        <button id="new-skill" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый скилл</button>
+        <button id="new-skill" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Новый скилл</button>
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="skills-list"></div>
     </div>`;
@@ -1954,8 +1954,8 @@ async function refreshSkills() {
           ${s.body ? `<details class="mt-2"><summary class="text-xs text-neutral-500 cursor-pointer hover:text-neutral-300">тело SKILL.md</summary><pre class="mt-1 text-xs mono text-neutral-400 whitespace-pre-wrap max-h-56 overflow-y-auto bg-neutral-800/50 rounded-lg p-2">${esc(s.body.slice(0, 3000))}${s.body.length > 3000 ? '…' : ''}</pre></details>` : ''}
         </div>
         <div class="flex gap-2 text-xs shrink-0 ml-3">
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
     </div>`).join('');
@@ -2015,7 +2015,7 @@ async function renderIssues() {
           <div class="text-lg font-semibold">Issues</div>
           <div class="text-xs text-neutral-500">Трекер задач проекта: статус, приоритет, исполнитель, комментарии. Клик по строке открывает issue с чатом комментариев — агенты пишут туда через issue_comment.</div>
         </div>
-        <button id="new-issue" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый issue</button>
+        <button id="new-issue" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Новый issue</button>
       </div>
       <div class="flex flex-wrap items-center gap-2 px-6 py-3 border-b border-neutral-800">
         <input id="issue-search" placeholder="Поиск по названию, описанию, тегам…" value="${esc(issueFilters.q)}"
@@ -2333,7 +2333,7 @@ async function renderProviders() {
           <div class="text-lg font-semibold">Провайдеры</div>
           <div class="text-xs text-neutral-500">API-ключи попадают в воркеры как env. «Проверить» поднимает настоящий opencode-контейнер и делает тест-запрос к модели.</div>
         </div>
-        <button id="new-provider" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Добавить провайдера</button>
+        <button id="new-provider" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Добавить провайдера</button>
       </div>
       <div class="flex-1 overflow-y-auto p-6">
         <div id="providers-added"></div>
@@ -2342,7 +2342,7 @@ async function renderProviders() {
             <div class="text-sm font-semibold">Каталог opencode — все доступные провайдеры</div>
             <div class="flex items-center gap-2">
               <span id="provider-catalog-meta" class="text-xs text-neutral-500"></span>
-              <button id="provider-catalog-refresh" class="px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">обновить</button>
+              <button id="provider-catalog-refresh" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">${icon('arrow-path', 'w-3.5 h-3.5')}обновить</button>
             </div>
           </div>
           <input id="provider-catalog-search" placeholder="Поиск по id или названию…" class="mb-3 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-sky-600">
@@ -2380,8 +2380,8 @@ async function refreshProviders() {
         </div>
         <div class="flex gap-2 text-xs">
           <button class="check px-3 py-1.5 rounded-lg border border-sky-800 text-sky-300 hover:bg-sky-950" data-id="${p.id}">Проверить</button>
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${p.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${p.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${p.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${p.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
       <div class="text-xs mt-2">
@@ -2553,7 +2553,7 @@ async function renderFiles() {
         </div>
         <div class="flex items-center gap-2">
           <input id="files-folder" placeholder="папка (необязательно)" class="w-40 bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-sky-600">
-          <button id="files-upload" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Загрузить</button>
+          <button id="files-upload" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('arrow-up-tray', 'w-4 h-4')}Загрузить</button>
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-6">
@@ -2607,6 +2607,8 @@ function openFilePreview(f) {
   const abs = new URL(f.url, window.location.origin).toString();
   const isImage = (f.content_type || '').startsWith('image/');
   const isHtml = (f.content_type || '').includes('text/html') || /\.(html?|xhtml?|htm)$/i.test(f.name);
+  const isMd = /\.(md|markdown|mdown|mkd)$/i.test(f.name) || (f.content_type || '').includes('text/markdown');
+  if (isMd) { openMarkdownEditor(f, abs); return; }
   closeFilePreview();
   const root = document.createElement('div');
   root.id = 'file-preview-root';
@@ -2620,7 +2622,7 @@ function openFilePreview(f) {
             <a href="${esc(abs)}" target="_blank" rel="noopener" class="px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">открыть в новой вкладке</a>
             <button class="pv-copy px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">копировать ссылку</button>
             <button class="pv-dl px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">скачать</button>
-            <button id="file-preview-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none px-1">&times;</button>
+            <button id="file-preview-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none px-1">${icon('x-mark', 'w-5 h-5')}</button>
           </div>
         </div>
         <div class="flex-1 overflow-auto p-4 flex items-center justify-center">
@@ -2629,7 +2631,7 @@ function openFilePreview(f) {
             : isHtml
               ? `<iframe src="${esc(abs)}" sandbox="allow-scripts allow-forms allow-modals allow-popups" class="w-full h-[75vh] bg-white rounded-lg border border-neutral-800"></iframe>`
               : `<div class="text-center py-10">
-                   <div class="text-4xl mb-3">📄</div>
+                   <div class="flex justify-center mb-3 text-neutral-600">${icon('document', 'w-10 h-10')}</div>
                    <div class="text-sm text-neutral-400">Предпросмотр недоступен для этого типа файла</div>
                    <div class="text-xs text-neutral-600 mt-1">${esc(f.content_type || '')}</div>
                  </div>`}
@@ -2653,6 +2655,104 @@ function openFilePreview(f) {
     a.download = f.name.split('/').pop();
     a.click();
   };
+}
+
+function openMarkdownEditor(f, abs) {
+  closeFilePreview();
+  const root = document.createElement('div');
+  root.id = 'file-preview-root';
+  let mode = 'preview';
+  let original = '';
+  let content = '';
+  const dirty = () => content !== original;
+  root.innerHTML = `
+    <div class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-6" id="file-preview-overlay">
+      <div class="w-full max-w-4xl bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-neutral-800 gap-3">
+          <div class="mono text-sm text-sky-300 truncate min-w-0 flex-1">${esc(f.name)}</div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-xs text-neutral-500 hidden md:inline">${f.size ? fmtSize(f.size) : ''}</span>
+            <div class="flex rounded-lg border border-neutral-700 overflow-hidden text-xs shrink-0">
+              <button class="md-tab px-2.5 py-1 hover:bg-neutral-800 ${mode === 'preview' ? 'bg-neutral-700 text-white' : 'text-neutral-400'}" data-mode="preview" title="Просмотр">${icon('document', 'w-3.5 h-3.5')} Просмотр</button>
+              <button class="md-tab px-2.5 py-1 hover:bg-neutral-800 ${mode === 'edit' ? 'bg-neutral-700 text-white' : 'text-neutral-400'}" data-mode="edit" title="Редактировать">${icon('pencil-square', 'w-3.5 h-3.5')} Правка</button>
+            </div>
+            <button class="md-save hidden px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium">Сохранить</button>
+            <button class="pv-dl px-2.5 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs" title="Скачать">${icon('arrow-down-tray', 'w-3.5 h-3.5')}</button>
+            <button id="file-preview-close" class="p-1.5 rounded-md text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200" title="закрыть">${icon('x-mark', 'w-5 h-5')}</button>
+          </div>
+        </div>
+        <div class="flex-1 min-h-0 overflow-hidden" id="md-body">
+          <div class="h-full flex items-center justify-center text-sm text-neutral-500">загрузка…</div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+
+  const renderBody = () => {
+    const body = $('#md-body');
+    if (!body) return;
+    if (mode === 'edit') {
+      body.innerHTML = `<textarea id="md-textarea" spellcheck="false" class="w-full h-full bg-neutral-950 text-neutral-200 mono text-sm p-4 resize-none focus:outline-none">${esc(content)}</textarea>`;
+      const ta = $('#md-textarea');
+      ta.addEventListener('input', () => { content = ta.value; });
+    } else {
+      body.innerHTML = `<div class="md h-full overflow-y-auto p-4 text-sm leading-relaxed bg-neutral-950/60">${content.trim() ? renderMarkdown(content) : '<div class="text-neutral-600 py-10 text-center">файл пуст</div>'}</div>`;
+    }
+    $$('.md-tab', root).forEach(b => {
+      const active = b.dataset.mode === mode;
+      b.classList.toggle('bg-neutral-700', active);
+      b.classList.toggle('text-white', active);
+      b.classList.toggle('text-neutral-400', !active);
+    });
+    $('.md-save', root).classList.toggle('hidden', mode !== 'edit');
+  };
+
+  const close = async () => {
+    if (dirty()) {
+      if (confirm('Есть несохранённые изменения. Сохранить?')) {
+        await save();
+        if (dirty()) return;
+      } else if (!confirm('Изменения не сохранены — закрыть?')) {
+        return;
+      }
+    }
+    closeFilePreview();
+  };
+  const save = async () => {
+    try {
+      const r = await api.put(`/api/files?project_id=${currentProject}`, {
+        path: f.name, content, content_type: 'text/markdown',
+      });
+      original = content;
+      toast('Сохранено', 'ok');
+      refreshFiles();
+      return r;
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  $('#file-preview-overlay').onclick = (e) => { if (e.target.id === 'file-preview-overlay') close(); };
+  $('#file-preview-close').onclick = close;
+  $$('.md-tab', root).forEach(b => b.onclick = () => { mode = b.dataset.mode; renderBody(); });
+  $('.md-save', root).onclick = save;
+  $('.pv-dl', root).onclick = () => {
+    const a = document.createElement('a');
+    a.href = abs + (abs.includes('?') ? '&' : '?') + 'download=1';
+    a.download = f.name.split('/').pop();
+    a.click();
+  };
+
+  (async () => {
+    try {
+      const r = await fetch(abs);
+      if (r.status === 401) { location.href = '/login'; return; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      content = original = await r.text();
+      renderBody();
+    } catch {
+      const body = $('#md-body');
+      if (body) body.innerHTML = `<div class="h-full flex items-center justify-center text-sm text-red-400">Не удалось прочитать файл</div>`;
+    }
+  })();
 }
 
 async function refreshFiles() {
@@ -2680,9 +2780,9 @@ async function refreshFiles() {
   }
   const folderHtml = folders.length ? `<div class="text-[10px] uppercase tracking-wider text-neutral-600 px-2 mb-1">Папки</div>` + folders.map(d => `
     <button class="folder w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-800/60 text-left" data-path="${esc(d.path)}">
-      <span class="text-xs w-4 text-center shrink-0">📁</span>
+      <span class="text-neutral-500 shrink-0">${icon('folder', 'w-4 h-4')}</span>
       <span class="mono text-xs text-sky-300 truncate flex-1">${esc(d.name)}</span>
-      <span class="text-neutral-600 text-[10px] shrink-0">▸</span>
+      <span class="text-neutral-600 shrink-0">${icon('chevron-right', 'w-3.5 h-3.5')}</span>
     </button>`).join('') : '';
   const fileHtml = files.length ? (folders.length ? `<div class="text-[10px] uppercase tracking-wider text-neutral-600 px-2 mb-1 mt-2">Файлы</div>` : '') + files.map(f => {
     const isImage = (f.content_type || '').startsWith('image/');
@@ -2696,9 +2796,9 @@ async function refreshFiles() {
           <span class="mono text-xs text-sky-300 truncate hover:underline block">${esc(f.name)}</span>
         </button>
         <span class="text-[10px] text-neutral-500 shrink-0" title="${f.last_modified ? esc(f.last_modified) : ''}">${fmtSize(f.size)}</span>
-        <button class="preview msg-actions text-neutral-500 hover:text-neutral-200 text-xs leading-none px-1 shrink-0" data-name="${esc(f.name)}" title="Открыть">⤢</button>
-        <button class="copy msg-actions text-neutral-500 hover:text-neutral-200 text-xs leading-none px-1 shrink-0" data-url="${esc(abs)}" title="Скопировать ссылку">⧉</button>
-        <button class="del msg-actions text-neutral-500 hover:text-red-400 text-xs leading-none px-1 shrink-0" data-name="${esc(f.name)}" title="Удалить">✕</button>
+        <button class="preview msg-actions text-neutral-500 hover:text-neutral-200 p-0.5 shrink-0" data-name="${esc(f.name)}" title="Открыть">${icon('arrow-top-right-on-square', 'w-3.5 h-3.5')}</button>
+        <button class="copy msg-actions text-neutral-500 hover:text-neutral-200 p-0.5 shrink-0" data-url="${esc(abs)}" title="Скопировать ссылку">${icon('square-2-stack', 'w-3.5 h-3.5')}</button>
+        <button class="del msg-actions text-neutral-500 hover:text-red-400 p-0.5 shrink-0" data-name="${esc(f.name)}" title="Удалить">${icon('x-mark', 'w-3.5 h-3.5')}</button>
       </div>`;
   }).join('') : '';
   el.innerHTML = folderHtml + fileHtml;
@@ -2769,7 +2869,7 @@ async function renderAutomation(tab = 'webhooks') {
 function schedulesTabHtml() {
   return `
     <div class="flex items-center justify-end mb-4">
-      <button id="new-sched" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новое расписание</button>
+      <button id="new-sched" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Новое расписание</button>
     </div>
     <div id="sched-list"></div>`;
 }
@@ -2817,8 +2917,8 @@ async function refreshSchedules() {
         <div class="flex gap-2 text-xs">
           <button class="toggle px-3 py-1.5 rounded-lg border ${s.enabled ? 'border-red-900 text-red-400 hover:bg-red-950' : 'border-emerald-800 text-emerald-400 hover:bg-emerald-950'}" data-id="${s.id}">${s.enabled ? 'Остановить' : 'Включить'}</button>
           <button class="run px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}" title="Выполнить задание прямо сейчас">выполнить сейчас</button>
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
       <pre class="mt-3 text-sm whitespace-pre-wrap text-neutral-300 border-l-2 border-neutral-700 pl-3">${esc(s.prompt.slice(0, 400))}${s.prompt.length > 400 ? '…' : ''}</pre>
@@ -3070,7 +3170,7 @@ async function refreshWebhooks(content) {
   content.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div class="text-xs text-neutral-500 max-w-md">Webhook — внешний POST-запрос, который запускает агента. Тело: {"prompt": "…"} (если пусто — промпт по умолчанию). С wait=&lt;сек&gt; можно дождаться результата.</div>
-      <button id="new-webhook" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">Новый webhook</button>
+      <button id="new-webhook" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">${icon('plus', 'w-4 h-4')}Новый webhook</button>
     </div>
     <div id="webhooks-list"></div>`;
   $('#new-webhook').onclick = () => webhookModal();
@@ -3094,8 +3194,8 @@ async function refreshWebhooks(content) {
         </div>
         <div class="flex gap-2 text-xs shrink-0 ml-3">
           <button class="test px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-slug="${esc(w.slug)}">тест</button>
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${w.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${w.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
       <div class="flex items-center gap-2 mt-3">
@@ -3189,7 +3289,7 @@ async function refreshOutWebhooks(content) {
   content.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div class="text-xs text-neutral-500 max-w-lg">Исходящий webhook — брокер сам шлёт POST-уведомления о событиях (запуск и завершение сессий, срабатывание расписаний) на ваш URL. Тело: {"event", "timestamp", "data"}. При заданном секрете каждый запрос подписан: X-Vibeprod-Signature (HMAC-SHA256).</div>
-      <button id="new-out" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">Новый webhook</button>
+      <button id="new-out" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">${icon('plus', 'w-4 h-4')}Новый webhook</button>
     </div>
     <div id="out-list"></div>`;
   $('#new-out').onclick = () => outWebhookModal();
@@ -3212,8 +3312,8 @@ async function refreshOutWebhooks(content) {
         <div class="flex gap-2 text-xs shrink-0 ml-3">
           <button class="test px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">тест</button>
           <button class="log px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">журнал</button>
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${w.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${w.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${w.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
       <div class="flex flex-wrap gap-2 mt-3 text-xs">
@@ -3292,7 +3392,7 @@ async function outDeliveriesModal(w) {
       <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
         <div class="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
           <div class="font-semibold truncate">Журнал доставок: ${esc(w.name || w.url)}</div>
-          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">&times;</button>
+          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">${icon('x-mark', 'w-5 h-5')}</button>
         </div>
         <div class="p-5 overflow-y-auto" id="deliveries-body"><div class="text-neutral-500 text-sm">загрузка…</div></div>
         <div class="px-5 py-3 border-t border-neutral-800 flex justify-end gap-2">
@@ -3354,7 +3454,7 @@ async function refreshAutomations(content) {
   content.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div class="text-xs text-neutral-500 max-w-xl">Автоматизация — правило, которое запускает агента при событии брокера (сессия завершилась/упала, сработало расписание, пришёл webhook). В промпте можно использовать данные события: {title}, {status}, {prompt}, {agent_name}, {project_name}, {error}, {url}, {session_id}, а также {event} и {json} — полный пейлоад. Можно строить цепочки: одна сессия завершилась — стартует следующая.</div>
-      <button id="new-automation" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">Новое правило</button>
+      <button id="new-automation" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium shrink-0 ml-4">${icon('plus', 'w-4 h-4')}Новое правило</button>
     </div>
     <div id="automations-list"></div>`;
   $('#new-automation').onclick = () => automationModal();
@@ -3377,8 +3477,8 @@ async function refreshAutomations(content) {
           <button class="toggle px-3 py-1.5 rounded-lg border ${a.enabled ? 'border-red-900 text-red-400 hover:bg-red-950' : 'border-emerald-800 text-emerald-400 hover:bg-emerald-950'}" data-id="${a.id}">${a.enabled ? 'Выключить' : 'Включить'}</button>
           <button class="test px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">тест</button>
           <button class="log px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">журнал</button>
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${a.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${a.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${a.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
       <div class="flex flex-wrap gap-2 mt-3 text-xs">
@@ -3471,7 +3571,7 @@ async function automationRunsModal(a) {
       <div class="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
         <div class="flex items-center justify-between px-5 py-3 border-b border-neutral-800">
           <div class="font-semibold truncate">Журнал запусков: ${esc(a.name || 'Без названия')}</div>
-          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">&times;</button>
+          <button id="modal-close" class="text-neutral-500 hover:text-neutral-200 text-xl leading-none">${icon('x-mark', 'w-5 h-5')}</button>
         </div>
         <div class="p-5 overflow-y-auto" id="runs-body"><div class="text-neutral-500 text-sm">загрузка…</div></div>
         <div class="px-5 py-3 border-t border-neutral-800 flex justify-end gap-2">
@@ -3647,7 +3747,7 @@ async function renderSsh(arg) {
           <div class="text-lg font-semibold">SSH</div>
           <div class="text-xs text-neutral-500">Серверы с белым списком команд: агент выполняет только разрешённые команды и читает логи запусков (MCP «ssh» из каталога).</div>
         </div>
-        <button id="ssh-new" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">＋ Сервер</button>
+        <button id="ssh-new" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Сервер</button>
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="ssh-list"></div>
     </div>`;
@@ -3683,8 +3783,8 @@ async function refreshSsh() {
         <div class="flex gap-2 text-xs shrink-0 ml-3 flex-wrap justify-end">
           <button class="ssh-cmds px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}">команды</button>
           <button class="ssh-test px-3 py-1.5 rounded-lg border border-emerald-800 text-emerald-300 hover:bg-emerald-950" data-id="${s.id}">проверить</button>
-          <button class="ssh-edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}">изменить</button>
-          <button class="ssh-del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}">удалить</button>
+          <button class="ssh-edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${s.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="ssh-del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${s.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
     </div>`).join('');
@@ -3776,7 +3876,7 @@ async function renderSshServer(sid) {
       <div class="flex-1 overflow-y-auto p-6">
         <div class="flex items-center justify-between mb-3">
           <div class="font-semibold text-sm text-neutral-300">Разрешённые команды</div>
-          <button id="ssh-cmd-new" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium">＋ Команда</button>
+          <button id="ssh-cmd-new" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-medium">${icon('plus', 'w-3.5 h-3.5')}Команда</button>
         </div>
         <div id="ssh-cmd-list" class="mb-8"></div>
         <div class="font-semibold text-sm text-neutral-300 mb-3">Журнал запусков</div>
@@ -3832,8 +3932,8 @@ async function refreshSshCommands(sid) {
           ${c.arg_regex ? `<div class="text-xs mono text-neutral-500 mt-1 break-all">regex: ${esc(c.arg_regex)}</div>` : ''}
         </div>
         <div class="flex gap-2 text-xs shrink-0">
-          <button class="ssh-cmd-edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${c.id}">изменить</button>
-          <button class="ssh-cmd-del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${c.id}">удалить</button>
+          <button class="ssh-cmd-edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${c.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="ssh-cmd-del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${c.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
     </div>`).join('');
@@ -3911,7 +4011,7 @@ async function renderCatalog() {
           <div class="text-lg font-semibold">Каталог MCP</div>
           <div class="text-xs text-neutral-500">Переиспользуемые MCP-серверы: свои (local/remote) и docker-сервисы. Добавление к агенту — одной кнопкой в его карточке.</div>
         </div>
-        <button id="new-cat" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Добавить MCP</button>
+        <button id="new-cat" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Добавить MCP</button>
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="catalog-list"></div>
     </div>`;
@@ -3944,10 +4044,10 @@ async function refreshCatalog() {
           ${c.service_status ? `<div class="text-xs mt-2 ${c.service_status === 'running' ? 'text-emerald-400' : 'text-yellow-400'}">сервис: ${esc(c.service_status)}</div>` : ''}
         </div>
         <div class="flex gap-2 text-xs shrink-0 ml-3">
-          <button class="attach px-3 py-1.5 rounded-lg border border-sky-800 text-sky-300 hover:bg-sky-950" data-id="${c.id}" title="Добавить к агенту">＋ в агента</button>
+          <button class="attach inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-sky-800 text-sky-300 hover:bg-sky-950" data-id="${c.id}" title="Добавить к агенту">${icon('plus', 'w-3.5 h-3.5')}в агента</button>
           ${c.kind === 'service' ? `<button class="svc px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${c.id}" data-action="${c.service_status === 'running' ? 'stop' : 'start'}">${c.service_status === 'running' ? 'остановить' : 'запустить'}</button>` : ''}
-          ${!c.builtin ? `<button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${c.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${c.id}">удалить</button>` : ''}
+          ${!c.builtin ? `<button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${c.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${c.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>` : ''}
         </div>
       </div>
     </div>`).join('');
@@ -4027,7 +4127,7 @@ async function renderProjects() {
           <div class="text-lg font-semibold">Настройки проекта</div>
           <div class="text-xs text-neutral-500">Группируют агентов, провайдеров, расписания и сессии. Выбор в сайдбаре фильтрует все списки.</div>
         </div>
-        <button id="new-project" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">Новый проект</button>
+        <button id="new-project" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Новый проект</button>
       </div>
       <div class="flex-1 overflow-y-auto p-6" id="projects-list"></div>
     </div>`;
@@ -4048,8 +4148,8 @@ async function refreshProjects() {
           <div class="text-sm text-neutral-500">${esc(p.description || '')}</div>
         </div>
         <div class="flex gap-2 text-xs">
-          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${p.id}">изменить</button>
-          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${p.id}">удалить</button>
+          <button class="edit px-3 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800" data-id="${p.id}" title="изменить">${icon('pencil-square', 'w-4 h-4')}</button>
+          <button class="del px-3 py-1.5 rounded-lg border border-red-900 text-red-400 hover:bg-red-950" data-id="${p.id}" title="удалить">${icon('trash', 'w-4 h-4')}</button>
         </div>
       </div>
       <div class="flex flex-wrap gap-2 mt-3 text-xs text-neutral-400">

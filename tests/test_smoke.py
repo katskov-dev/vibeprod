@@ -138,6 +138,21 @@ def test_files_content_requires_valid_token(auth_client, monkeypatch):
     assert calls == ["a.png"]
 
 
+def test_files_update(client, monkeypatch):
+    from app.api import files as files_api
+
+    ups = {}
+    monkeypatch.setattr(files_api.files_store, "upload", lambda pid, path, data, ct, size=None: ups.update(pid=pid, path=path, data=data, ct=ct))
+    r = client.put("/api/files?project_id=1", json={"path": "docs/readme.md", "content": "# Привет\nобновлено"})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "docs/readme.md" and r.json()["size"] == len("# Привет\nобновлено".encode("utf-8"))
+    assert ups["data"] == "# Привет\nобновлено".encode("utf-8") and ups["ct"] == "text/markdown"
+
+    assert client.put("/api/files?project_id=1", json={"path": "x.md"}).status_code == 400
+    assert client.put("/api/files?project_id=1", json={"path": "../x.md", "content": "x"}).status_code == 400
+    assert client.put("/api/files?project_id=999999", json={"path": "x.md", "content": "x"}).status_code == 404
+
+
 def test_project_has_file_token(client):
     from app import db
 

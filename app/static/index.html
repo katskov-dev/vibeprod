@@ -78,12 +78,12 @@
       <div class="text-xs text-neutral-500 mb-1 px-1">Проект</div>
       <button id="project-trigger" class="w-full flex items-center justify-between gap-2 bg-neutral-800 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-sm hover:border-neutral-600 focus:outline-none">
         <span id="project-current" class="truncate text-neutral-200">Все проекты</span>
-        <span id="project-caret" class="text-neutral-500 text-xs transition-transform">▾</span>
+        <span id="project-caret" class="text-neutral-500 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg></span>
       </button>
       <div id="project-menu" class="hidden absolute left-2 right-2 top-[calc(100%+4px)] bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl z-50">
         <div id="project-menu-list" class="max-h-64 overflow-y-auto py-1"></div>
         <div class="border-t border-neutral-800 p-1.5 flex gap-1.5">
-          <button id="project-add" class="flex-1 px-2 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">＋ Добавить</button>
+          <button id="project-add" class="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>Добавить</button>
           <button id="project-manage" class="flex-1 px-2 py-1.5 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-xs">Управление</button>
         </div>
       </div>
@@ -116,7 +116,7 @@
   <div id="nav-overlay" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden"></div>
   <div class="flex-1 flex flex-col overflow-hidden">
     <header class="md:hidden flex items-center gap-3 px-3 py-2.5 border-b border-neutral-800 shrink-0">
-      <button id="nav-toggle" class="px-2.5 py-1.5 rounded-lg border border-neutral-700 text-neutral-300 text-base leading-none" aria-label="Меню">☰</button>
+      <button id="nav-toggle" class="px-2.5 py-1.5 rounded-lg border border-neutral-700 text-neutral-300" aria-label="Меню"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg></button>
       <div class="font-semibold">Vibeprod</div>
       <span id="mobile-view-title" class="text-sm text-neutral-500 truncate"></span>
     </header>

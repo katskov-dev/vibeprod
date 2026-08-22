@@ -2,7 +2,7 @@
 import mimetypes
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from minio import S3Error
 
@@ -140,6 +140,32 @@ def file_stat(
         "size": st.size,
         "content_type": st.content_type or mimetypes.guess_type(name)[0] or "",
     }
+
+
+@router.put("/files")
+async def update_file(project_id: int = Query(...), payload: dict = Body(...)):
+    """Перезапись содержимого файла (редактор markdown)."""
+    _project(project_id)
+    path = _clean_path(payload.get("path") or "")
+    content = payload.get("content")
+    if content is None:
+        raise HTTPException(400, "content обязателен")
+    data = content.encode("utf-8") if isinstance(content, str) else content
+    if len(data) > MAX_SIZE:
+        raise HTTPException(413, "файл больше 512 МБ")
+    md_suffixes = (".md", ".markdown", ".mdown", ".mkd")
+    content_type = (
+        payload.get("content_type")
+        or mimetypes.guess_type(path)[0]
+        or ("text/markdown" if PurePosixPath(path).suffix.lower() in md_suffixes else "application/octet-stream")
+    )
+    try:
+        files_store.upload(project_id, path, data, content_type)
+    except S3Error as exc:
+        raise HTTPException(500, f"хранилище: {exc}")
+    except Exception as exc:
+        raise HTTPException(500, f"хранилище: {exc}")
+    return {"ok": True, "name": path, "size": len(data)}
 
 
 @router.delete("/files")
