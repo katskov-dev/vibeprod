@@ -250,8 +250,11 @@ def _gen_test(url, token, provider_id, model_id, timeout=120):
         client.close()
 
 
-def check_provider(provider_id, api_key, deep=True):
+def check_provider(provider_id, api_key, deep=True, kind="builtin", base_url="", custom_models=None, label=""):
     """Поднимает probe-контейнер и проверяет провайдера в настоящем opencode.
+
+    kind='openai_compatible' — кастомный провайдер через @ai-sdk/openai-compatible:
+    в workspace пробы пишется opencode.json с provider-блоком.
 
     Возвращает {"ok", "models", "error", "gen": {"ok", "model", "reply"/"error"}}.
     """
@@ -267,6 +270,28 @@ def check_provider(provider_id, api_key, deep=True):
         }
         if api_key:
             env[env_var_for(provider_id)] = api_key
+        if kind == "openai_compatible":
+            try:
+                models = json.loads(custom_models or "{}") if isinstance(custom_models, str) else (custom_models or {})
+            except ValueError:
+                models = {}
+            if not models:
+                raise RuntimeError("custom_models пуст — задайте модели провайдера")
+            cfg = {
+                "$schema": "https://opencode.ai/config.json",
+                "provider": {
+                    provider_id: {
+                        "npm": "@ai-sdk/openai-compatible",
+                        "name": label or provider_id,
+                        "options": {
+                            "baseURL": base_url,
+                            "apiKey": f"{{env:{env_var_for(provider_id)}}}",
+                        },
+                        "models": models,
+                    }
+                },
+            }
+            (ws / "opencode.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
         container = client.containers.run(
             image=IMAGE,
             command=_entrypoint_cmd(ensure_image()),

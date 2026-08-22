@@ -100,6 +100,62 @@ def test_providers_available_serves_catalog(client, monkeypatch):
     assert body["providers"][0]["id"] == "aaa"
 
 
+def test_custom_provider_crud_and_render(client, monkeypatch, tmp_path):
+    import json as jsonlib
+
+    from app import db, render
+
+    models = {
+        "qwen3.8-27b": {"name": "Qwen3.8-27B", "limit": {"context": 262144, "output": 8192}}
+    }
+
+    # создать кастомного провайдера
+    r = client.post("/api/providers", json={
+        "id": "local-qwen", "label": "Qwen (local)", "kind": "openai_compatible",
+        "base_url": "https://host.runpod.net/v1", "api_key": "sk-test",
+        "custom_models": models, "project_id": 1,
+    })
+    assert r.status_code == 200, r.text
+    p = r.json()
+    assert p["kind"] == "openai_compatible" and p["base_url"] == "https://host.runpod.net/v1"
+    assert p["custom_models"] == models and p["env_var"] == "LOCAL_QWEN_API_KEY"
+
+    # валидация
+    assert client.post("/api/providers", json={"id": "x1", "kind": "openai_compatible", "base_url": "nope"}).status_code == 400
+    assert client.post("/api/providers", json={"id": "x2", "kind": "openai_compatible", "base_url": "https://h/v1", "custom_models": "не-json"}).status_code == 400
+    assert client.post("/api/providers", json={"id": "openai", "kind": "openai_compatible", "base_url": "https://h/v1"}).status_code == 400
+
+    # обновление
+    r = client.put("/api/providers/local-qwen", json={"base_url": "https://h2/v1"})
+    assert r.json()["base_url"] == "https://h2/v1"
+
+    # рендер workspace: custom попадает в opencode.json, builtin — нет
+    db.execute(
+        "INSERT INTO providers(id, label, env_var, api_key, enabled, kind) VALUES('deepseek','d','DEEPSEEK_API_KEY','k',1,'builtin')"
+    )
+    rows = db.query("SELECT * FROM providers")
+    wdir = tmp_path / "ws"
+    render.render_workspace(
+        wdir, db.query("SELECT * FROM agents WHERE is_guardian=0"), [], [], provider_rows=rows
+    )
+    cfg = jsonlib.loads((wdir / "opencode.json").read_text(encoding="utf-8"))
+    assert "local-qwen" in cfg["provider"] and "deepseek" not in cfg["provider"]
+    block = cfg["provider"]["local-qwen"]
+    assert block["npm"] == "@ai-sdk/openai-compatible"
+    assert block["options"]["baseURL"] == "https://h2/v1"
+    assert block["options"]["apiKey"] == "{env:LOCAL_QWEN_API_KEY}"
+    assert block["models"] == models
+
+    # выключенный или без ключа — не рендерится
+    db.execute("UPDATE providers SET enabled=0 WHERE id='local-qwen'")
+    rows = db.query("SELECT * FROM providers")
+    render.render_workspace(
+        wdir, db.query("SELECT * FROM agents WHERE is_guardian=0"), [], [], provider_rows=rows
+    )
+    cfg = jsonlib.loads((wdir / "opencode.json").read_text(encoding="utf-8"))
+    assert "provider" not in cfg
+
+
 def test_files_list_mocked(client, monkeypatch):
     from app.api import files as files_api
 

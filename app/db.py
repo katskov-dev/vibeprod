@@ -55,6 +55,12 @@ def init_db():
         pcols = {r["name"] for r in conn.execute("PRAGMA table_info(providers)").fetchall()}
         if "models_full" not in pcols:
             conn.execute("ALTER TABLE providers ADD COLUMN models_full TEXT")
+        if "kind" not in pcols:
+            conn.execute("ALTER TABLE providers ADD COLUMN kind TEXT DEFAULT 'builtin'")
+        if "base_url" not in pcols:
+            conn.execute("ALTER TABLE providers ADD COLUMN base_url TEXT DEFAULT ''")
+        if "custom_models" not in pcols:
+            conn.execute("ALTER TABLE providers ADD COLUMN custom_models TEXT DEFAULT '{}'")
         prcols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)").fetchall()}
         if "file_token" not in prcols:
             conn.execute("ALTER TABLE projects ADD COLUMN file_token TEXT")

@@ -2336,7 +2336,7 @@ async function renderProviders() {
       <div class="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
         <div>
           <div class="text-lg font-semibold">Провайдеры</div>
-          <div class="text-xs text-neutral-500">API-ключи попадают в воркеры как env. «Проверить» поднимает настоящий opencode-контейнер и делает тест-запрос к модели.</div>
+          <div class="text-xs text-neutral-500">API-ключи попадают в воркеры как env. «Проверить» поднимает настоящий opencode-контейнер и делает тест-запрос к модели. Кастомные OpenAI-compatible провайдеры (свой baseURL + модели) тоже поддерживаются — тип «openai_compatible».</div>
         </div>
         <button id="new-provider" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-sm font-medium">${icon('plus', 'w-4 h-4')}Добавить провайдера</button>
       </div>
@@ -2379,9 +2379,10 @@ async function refreshProviders() {
           <div class="font-semibold flex items-center gap-2">
             <span class="mono text-sky-300">${esc(p.id)}</span>
             ${p.label ? `<span class="text-neutral-400 text-sm">${esc(p.label)}</span>` : ''}
+            ${(p.kind || 'builtin') === 'openai_compatible' ? '<span class="text-xs px-2 py-0.5 rounded bg-purple-900/50 text-purple-300">custom</span>' : ''}
             ${p.enabled ? '<span class="text-xs px-2 py-0.5 rounded bg-emerald-900/50">вкл</span>' : '<span class="text-xs px-2 py-0.5 rounded bg-neutral-800 text-neutral-500">выкл</span>'}
           </div>
-          <div class="text-xs text-neutral-500 mt-0.5 mono">env: ${esc(p.env_var)}</div>
+          <div class="text-xs text-neutral-500 mt-0.5 mono">${(p.kind || 'builtin') === 'openai_compatible' ? `${esc(p.base_url || '')} · ` : ''}env: ${esc(p.env_var)}</div>
         </div>
         <div class="flex gap-2 text-xs">
           <button class="check px-3 py-1.5 rounded-lg border border-sky-800 text-sky-300 hover:bg-sky-950" data-id="${p.id}">Проверить</button>
@@ -2484,6 +2485,8 @@ function providerModal(p, prefill) {
   const isEdit = !!(p && p.env_var !== undefined);
   const pid = p ? p.id : (prefill ? prefill.id : '');
   const label = p ? p.label : (prefill ? prefill.label : '');
+  const kind = p ? (p.kind || 'builtin') : 'builtin';
+  const customModels = p && p.custom_models ? JSON.stringify(p.custom_models, null, 2) : '{\n  "model-id": {\n    "name": "Название",\n    "limit": {"context": 131072, "output": 8192}\n  }\n}';
   const known = api.get('/api/providers/available')
     .then(c => (c.providers || []).map(x => ({ id: x.id, name: x.name })))
     .catch(() => api.get('/api/providers/known').then(ids => ids.map(id => ({ id }))).catch(() => []));
@@ -2496,6 +2499,14 @@ function providerModal(p, prefill) {
       <datalist id="provider-ids">${list.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</datalist>
       ${formInput('Название (необязательно)', 'label', label)}
       ${projSel}
+      ${formSelect('Тип', 'kind', [
+        { v: 'builtin', l: 'встроенный (каталог models.dev, ключ в env)' },
+        { v: 'openai_compatible', l: 'OpenAI-compatible (свой baseURL, любые модели)' },
+      ], kind)}
+      <div id="prov-custom" class="${kind === 'openai_compatible' ? '' : 'hidden'}">
+        ${formInput('Base URL', 'base_url', p ? (p.base_url || '') : '', 'https://ваш-хост/v1')}
+        ${formArea('Модели (JSON)', 'custom_models', customModels, 7, '{"qwen3.8-27b": {"name": "Qwen3.8-27B", "limit": {"context": 262144, "output": 8192}}}')}
+      </div>
       ${formInput('API-ключ', 'api_key', '', isEdit ? 'оставьте пустым, чтобы не менять' : 'sk-…', 'password')}
       <label class="flex items-center gap-2 text-sm mb-3">
         <input type="checkbox" name="enabled" ${isEdit ? (p.enabled ? 'checked' : '') : 'checked'} class="accent-sky-600">
@@ -2514,6 +2525,10 @@ function providerModal(p, prefill) {
       close();
       await refreshProviders();
     });
+    const kindSel = $('[name="kind"]', $('#modal-body'));
+    if (kindSel) kindSel.onchange = () => {
+      $('#prov-custom').classList.toggle('hidden', kindSel.value !== 'openai_compatible');
+    };
   });
 }
 

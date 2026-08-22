@@ -267,7 +267,11 @@ async def start_session(sid, initial_prompt=None):
         from .broker_mcp import broker_mcp_entry
 
         broker_mcp = broker_mcp_entry(session_id=sid, project_id=row["project_id"])
-        render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=guardian_mcp, broker_mcp=broker_mcp)
+        provider_rows = db.query("SELECT * FROM providers")
+        render_workspace(
+            wdir, agents_rows, mcp_rows, skill_rows,
+            guardian_mcp=guardian_mcp, broker_mcp=broker_mcp, provider_rows=provider_rows,
+        )
         await asyncio.to_thread(_ensure_mcp_services, mcp_rows)
     except Exception as exc:
         _terminal_fail(sid, f"render config: {exc}")

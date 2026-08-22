@@ -25,12 +25,53 @@ def _mask(key):
     return key[:4] + "…" + key[-4:]
 
 
+def _parse_custom_models(raw):
+    """JSON моделей кастомного провайдера: {model_id: {name?, limit?}}."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            models = json.loads(raw)
+        except ValueError:
+            raise HTTPException(400, "custom_models: невалидный JSON")
+    else:
+        models = raw
+    if not isinstance(models, dict) or not models:
+        raise HTTPException(400, "custom_models: объект {model_id: {name, limit}}")
+    for mid, spec in models.items():
+        if not isinstance(spec, dict) or not isinstance(mid, str) or not mid.strip():
+            raise HTTPException(400, "custom_models: {model_id: {name?, limit?}}")
+        limit = spec.get("limit")
+        if limit is not None and not isinstance(limit, dict):
+            raise HTTPException(400, "custom_models: limit — объект {context?, output?}")
+    return json.dumps(models, ensure_ascii=False)
+
+
+def _validate_custom(payload):
+    kind = payload.get("kind") or "builtin"
+    if kind not in ("builtin", "openai_compatible"):
+        raise HTTPException(400, "kind: builtin | openai_compatible")
+    if kind == "openai_compatible":
+        base_url = (payload.get("base_url") or "").strip()
+        if not base_url.startswith(("http://", "https://")):
+            raise HTTPException(400, "base_url обязателен для openai_compatible (http(s)://…)")
+        custom_models = _parse_custom_models(payload.get("custom_models") or {})
+    else:
+        base_url = ""
+        custom_models = None
+    return kind, base_url, custom_models
+
+
 def _dict(row):
     d = dict(row)
     d.pop("api_key", None)
     d.pop("models_full", None)
     d["has_key"] = bool(row["api_key"])
     d["key_masked"] = _mask(row["api_key"])
+    try:
+        d["custom_models"] = json.loads(row["custom_models"]) if row.get("custom_models") else {}
+    except ValueError:
+        d["custom_models"] = {}
     for field in ("models", "last_gen"):
         try:
             d[field] = json.loads(row[field]) if row.get(field) else ([] if field == "models" else None)
@@ -89,19 +130,26 @@ def create_provider(payload: dict):
     pid = (payload.get("id") or "").strip().lower()
     if not ID_RE.match(pid):
         raise HTTPException(400, "id: строчные латинские буквы, цифры, дефис")
+    kind, base_url, custom_models = _validate_custom(payload)
+    if kind == "openai_compatible" and pid in KNOWN_PROVIDER_IDS:
+        raise HTTPException(400, f"id '{pid}' совпадает со встроенным провайдером — выберите другое имя")
     if db.query_one("SELECT id FROM providers WHERE id=?", (pid,)):
         raise HTTPException(409, "провайдер уже добавлен")
     project_id = payload.get("project_id")
     if project_id is not None and not db.query_one("SELECT id FROM projects WHERE id=?", (int(project_id),)):
         raise HTTPException(400, "проект не существует")
     db.execute(
-        "INSERT INTO providers(id, label, env_var, api_key, enabled, project_id) VALUES(?,?,?,?,?,?)",
+        "INSERT INTO providers(id, label, env_var, api_key, enabled, kind, base_url, custom_models, project_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
         (
             pid,
             payload.get("label") or "",
             env_var_for(pid),
             payload.get("api_key") or "",
             1 if payload.get("enabled", True) else 0,
+            kind,
+            base_url,
+            custom_models or "{}",
             project_id,
         ),
     )
@@ -115,17 +163,26 @@ def update_provider(pid: str, payload: dict):
     project_id = payload.get("project_id", row["project_id"])
     if project_id is not None and not db.query_one("SELECT id FROM projects WHERE id=?", (int(project_id),)):
         raise HTTPException(400, "проект не существует")
+    kind, base_url, custom_models = _validate_custom({**row, **payload})
     if api_key:
         db.execute(
-            "UPDATE providers SET label=?, api_key=?, enabled=?, project_id=?, updated_at=datetime('now') WHERE id=?",
+            "UPDATE providers SET label=?, api_key=?, enabled=?, kind=?, base_url=?, custom_models=?, "
+            "project_id=?, updated_at=datetime('now') WHERE id=?",
             (payload.get("label", row["label"]), api_key,
-             1 if payload.get("enabled", row["enabled"]) else 0, project_id, pid),
+             1 if payload.get("enabled", row["enabled"]) else 0, kind,
+             base_url if kind == "openai_compatible" else "",
+             custom_models if custom_models is not None else (row["custom_models"] or "{}"),
+             project_id, pid),
         )
     else:
         db.execute(
-            "UPDATE providers SET label=?, enabled=?, project_id=?, updated_at=datetime('now') WHERE id=?",
+            "UPDATE providers SET label=?, enabled=?, kind=?, base_url=?, custom_models=?, "
+            "project_id=?, updated_at=datetime('now') WHERE id=?",
             (payload.get("label", row["label"]),
-             1 if payload.get("enabled", row["enabled"]) else 0, project_id, pid),
+             1 if payload.get("enabled", row["enabled"]) else 0, kind,
+             base_url if kind == "openai_compatible" else "",
+             custom_models if custom_models is not None else (row["custom_models"] or "{}"),
+             project_id, pid),
         )
     return _dict(_get(pid))
 
@@ -146,7 +203,11 @@ def check_provider_endpoint(pid: str, payload: dict = None):
     payload = payload or {}
     row = _get(pid)
     deep = payload.get("deep", True)
-    result = check_provider(pid, row["api_key"], deep=bool(deep))
+    result = check_provider(
+        pid, row["api_key"], deep=bool(deep),
+        kind=row["kind"], base_url=row["base_url"],
+        custom_models=row["custom_models"], label=row["label"],
+    )
     db.execute(
         "UPDATE providers SET models=?, models_full=?, last_check_ok=?, last_check_error=?, last_gen=?, last_check_at=datetime('now') WHERE id=?",
         (
@@ -165,7 +226,11 @@ def check_provider_endpoint(pid: str, payload: dict = None):
 def refresh_models(pid: str):
     """Пробует провайдера в opencode-контейнере и обновляет кэш моделей (без тест-запроса)."""
     row = _get(pid)
-    result = check_provider(pid, row["api_key"], deep=False)
+    result = check_provider(
+        pid, row["api_key"], deep=False,
+        kind=row["kind"], base_url=row["base_url"],
+        custom_models=row["custom_models"], label=row["label"],
+    )
     db.execute(
         "UPDATE providers SET models=?, models_full=?, last_check_ok=?, last_check_error=?, last_check_at=datetime('now') WHERE id=?",
         (

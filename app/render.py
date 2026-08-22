@@ -107,13 +107,46 @@ def _build_mcp(mcp_rows):
     return mcp
 
 
-def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None, broker_mcp=None):
+def _build_custom_providers(provider_rows):
+    """Provider-блоки opencode.json для OpenAI-compatible провайдеров из БД.
+
+    Встроенные провайдеры (models.dev) регистрируются в opencode сами, им
+    нужен только ключ в env. Кастомным нужен конфиг: npm-пакет
+    @ai-sdk/openai-compatible + baseURL + модели. Ключ передаётся в воркер
+    через env (как у встроенных) и подставляется через {env:VAR}.
+    """
+    out = {}
+    for p in provider_rows:
+        if (p.get("kind") or "builtin") != "openai_compatible":
+            continue
+        if not p.get("enabled") or not p.get("api_key"):
+            continue
+        try:
+            models = json.loads(p.get("custom_models") or "{}")
+        except ValueError:
+            models = {}
+        if not models:
+            continue
+        out[p["id"]] = {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": p.get("label") or p["id"],
+            "options": {
+                "baseURL": p.get("base_url") or "",
+                "apiKey": "{env:%s}" % p["env_var"],
+            },
+            "models": models,
+        }
+    return out
+
+
+def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None, broker_mcp=None, provider_rows=None):
     """Пишет opencode.json + .opencode/ в wdir. Возвращает имя default-агента.
 
     guardian_mcp — синтетическая запись MCP агента-оператора (подмешивается
     только в workspace guardian-сессий, в каталог не попадает).
     broker_mcp — синтетическая запись встроенных инструментов Vibeprod
     (telegram и т.п.), подмешивается в КАЖДУЮ сессию.
+    provider_rows — строки провайдеров из БД (для кастомных OpenAI-compatible).
     """
     wdir.mkdir(parents=True, exist_ok=True)
     for a in agents_rows:
@@ -137,6 +170,9 @@ def render_workspace(wdir, agents_rows, mcp_rows, skill_rows, guardian_mcp=None,
     mcp = _build_mcp(list(mcp_rows) + synthetic)
     if mcp:
         cfg["mcp"] = mcp
+    custom_providers = _build_custom_providers(provider_rows or [])
+    if custom_providers:
+        cfg["provider"] = custom_providers
     (wdir / "opencode.json").write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return default["name"]
 
